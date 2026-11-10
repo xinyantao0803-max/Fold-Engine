@@ -104,12 +104,20 @@ namespace FoldEngine
         }
     }
 
-    /// <summary>fold 控制台指令：执行一次内置测试播放。</summary>
+    /// <summary>
+    /// fold 控制台指令。
+    /// 用法：
+    ///   fold                    内置测试播放（文本 → 图片 → 清除）
+    ///   fold image &lt;url&gt;       直接下发全屏图片（支持 test / smiley 本地图）
+    ///   fold video &lt;url&gt;       直接下发全屏视频（mp4 / webm）
+    ///   fold module &lt;name&gt;     让 FoldEdge 读取 Modules/&lt;name&gt;.fdll 并播放
+    ///   fold tags &lt;18+,GORE&gt;   手动注入合规标签前缀（便于验证注入逻辑）
+    /// </summary>
     public class FoldCommand : ICommand
     {
         public string Command => "fold";
         public string[] Aliases => new string[0];
-        public string Description => "Run a Fold Engine test playlist.";
+        public string Description => "Run a Fold Engine test playlist (fold [image|video|module|tags]).";
 
         public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
@@ -120,23 +128,80 @@ namespace FoldEngine
                 return false;
             }
 
-            var items = new List<PlaylistItem>
+            string sub = (GetArg(arguments, 0) ?? string.Empty).ToLowerInvariant();
+            switch (sub)
             {
-                new PlaylistItem { Time = 0f, Action = "text",  Url = "Fold Engine 测试播放启动" },
-                new PlaylistItem { Time = 2f, Action = "image", Url = "smiley" },
-                new PlaylistItem { Time = 5f, Action = "clear", Url = string.Empty }
-            };
-            _ = ui.Play("demo", items);
+                case "":
+                case "demo":
+                case "play":
+                    _ = ui.Play("demo", new List<PlaylistItem>
+                    {
+                        new PlaylistItem { Time = 0f, Action = "text",  Url = "Fold Engine 测试播放启动" },
+                        new PlaylistItem { Time = 2f, Action = "image", Url = "smiley" },
+                        new PlaylistItem { Time = 5f, Action = "clear", Url = string.Empty }
+                    });
+                    response = "[Fold] 测试播放已开始: demo";
+                    return true;
 
-            // 模拟读取 .fdll manifest.json 并应用合规标签（规范 v1.0.0）
-            const string demoManifest =
-                "{\"id\":\"com.fold.demo\",\"name\":\"demo\",\"version\":\"1.0.0\",\"author\":\"Fold\"," +
-                "\"engineVersion\":\">=1.0.0\",\"description\":\"Fold demo module\"," +
-                "\"tags\":[\"18+\",\"GORE\",\"INTENSE\"]}";
-            FoldCore.ApplyComplianceTags(PlaylistTransport.ParseTags(demoManifest));
+                case "image":
+                    var imageUrl = GetArg(arguments, 1);
+                    if (string.IsNullOrEmpty(imageUrl))
+                    {
+                        response = "用法: fold image <url|test|smiley>";
+                        return false;
+                    }
+                    ui.PlayImage(imageUrl);
+                    response = $"[Fold] 已下发图片: {imageUrl}";
+                    return true;
 
-            response = "[Fold] 测试播放已开始: demo";
-            return true;
+                case "video":
+                    var videoUrl = GetArg(arguments, 1);
+                    if (string.IsNullOrEmpty(videoUrl))
+                    {
+                        response = "用法: fold video <url>";
+                        return false;
+                    }
+                    ui.PlayVideo(videoUrl);
+                    response = $"[Fold] 已下发视频: {videoUrl}";
+                    return true;
+
+                case "module":
+                    var moduleName = GetArg(arguments, 1);
+                    if (string.IsNullOrEmpty(moduleName))
+                    {
+                        response = "用法: fold module <name>（对应 FoldEdge/Modules/<name>.fdll）";
+                        return false;
+                    }
+                    FoldEdgeClient.Instance.TriggerModule(moduleName);
+                    response = $"[Fold] 已请求主程序加载模块: {moduleName}";
+                    return true;
+
+                case "tags":
+                    var raw = GetArg(arguments, 1);
+                    if (string.IsNullOrEmpty(raw))
+                    {
+                        response = "用法: fold tags <tag1,tag2>（例如 18+,GORE）";
+                        return false;
+                    }
+                    var tags = new List<string>();
+                    foreach (var t in raw.Split(','))
+                    {
+                        if (t.Trim().Length > 0) tags.Add(t.Trim());
+                    }
+                    FoldCore.ApplyComplianceTags(tags);
+                    response = $"[Fold] 合规标签已处理: {string.Join(",", tags)}";
+                    return true;
+
+                default:
+                    response = "用法: fold [demo|image <url>|video <url>|module <name>|tags <a,b>]";
+                    return false;
+            }
+        }
+
+        private static string GetArg(ArraySegment<string> arguments, int index)
+        {
+            if (arguments.Array == null || index < 0 || index >= arguments.Count) return null;
+            return arguments.Array[arguments.Offset + index];
         }
     }
 }

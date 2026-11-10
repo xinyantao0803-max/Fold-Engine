@@ -85,6 +85,13 @@ namespace FoldEngine
             _ = SendAsync(json);
         }
 
+        /// <summary>请求 FoldEdge 读取指定的 .fdll 模块并回推 manifest + timeline。</summary>
+        public void TriggerModule(string moduleName)
+        {
+            var json = "{\"type\":\"trigger\",\"module\":\"" + moduleName.Replace("\"", "\\\"") + "\"}";
+            _ = SendAsync(json);
+        }
+
         private async Task SendAsync(string json)
         {
             try
@@ -159,17 +166,45 @@ namespace FoldEngine
         {
             try
             {
-                if (MiniJson.GetStringValue(json, "type") != "image-frame") return;
-                var frame = ImageFrameData.Parse(json);
-                if (frame != null)
+                var type = MiniJson.GetStringValue(json, "type");
+                if (type == "image-frame")
                 {
-                    ImageFrameReceived?.Invoke(frame);
+                    var frame = ImageFrameData.Parse(json);
+                    if (frame != null)
+                    {
+                        ImageFrameReceived?.Invoke(frame);
+                    }
+                    return;
                 }
+
+                if (type == "command" && HandleCommand(json)) return;
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[Fold] 帧解析失败: {ex.Message}");
             }
+        }
+
+        /// <summary>处理主程序指令：play → 注入合规标签 + 播放时间轴。</summary>
+        private bool HandleCommand(string json)
+        {
+            if (!string.Equals(MiniJson.GetStringValue(json, "command"), "play",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var module = MiniJson.GetStringValue(json, "module") ?? "unknown";
+            var manifest = MiniJson.GetStringValue(json, "manifest") ?? string.Empty;
+            var timeline = MiniJson.GetStringValue(json, "timeline") ?? string.Empty;
+
+            // 合规标签来自 .fdll 的 manifest.json，由主程序原样下发
+            FoldCore.ApplyComplianceTags(PlaylistTransport.ParseTags(manifest));
+
+            var items = PlaylistTransport.ParseTimeline(timeline);
+            Logger.Info($"[Fold] 收到模块 {module}：{items.Count} 个时间轴事件");
+            _ = FoldCore.UI?.Play(module, items);
+            return true;
         }
     }
 }

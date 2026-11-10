@@ -293,19 +293,34 @@ namespace FoldEngine
                     Broadcast($"[Fold] {module} 画面已清除");
                     break;
                 case "image":
-                    // 向客户端广播 [FOLD_IMG] 标记：装有 FoldClient 的玩家会拦截并渲染真实图片，
-                    // 未装模组的玩家看到的是标记文本（MVP 取舍）。
-                    Broadcast("[FOLD_IMG]" + item.Url);
-                    ShowImage(item.Url);
+                    PlayImage(item.Url);
                     break;
                 case "play_video":
-                    // PLAY_VIDEO：向客户端下发视频指令（FoldClient 拦截 [FOLD_VIDEO] 并全屏播放 WebM/MP4）。
-                    Broadcast("[FOLD_VIDEO]" + item.Url);
+                    PlayVideo(item.Url);
                     break;
                 default: // text：纯文本广播
                     Broadcast($"[Fold][{item.Time:F0}s] {item.Url}");
                     break;
             }
+        }
+
+        /// <summary>
+        /// 向客户端广播 [FOLD_IMG] 标记：装有 FoldClient 的玩家拦截后全屏渲染真实图片，
+        /// 未装模组的玩家看到的是标记文本（MVP 取舍）。
+        /// 插件端不下载图片，只通过 FoldEdge 把 url 转成颜色矩阵。
+        /// </summary>
+        public void PlayImage(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return;
+            Broadcast("[FOLD_IMG]" + url);
+            ShowImage(url);
+        }
+
+        /// <summary>向客户端广播 [FOLD_VIDEO] 标记：FoldClient 拦截后全屏播放 WebM/MP4。</summary>
+        public void PlayVideo(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return;
+            Broadcast("[FOLD_VIDEO]" + url, 8f);
         }
 
         /// <summary>

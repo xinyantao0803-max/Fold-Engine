@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO.Compression;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -8,7 +9,7 @@ using FoldEdge;
 //  FoldEdge —— Fold 引擎外部主程序 (.NET 8 / ASP.NET Core)
 //  监听 127.0.0.1:9000，作为游戏内 FoldEngine 插件的控制端：
 //    GET  /api/status            查询运行状态
-//    POST /api/trigger/{module}  向插件下发播放指令
+//    POST /api/trigger/{module}  读取 Modules/*.fdll（ZIP）→ 下发 manifest + timeline
 //    POST /api/image             下载图片 → JSON 颜色矩阵 → 推送给插件
 //    GET  /ws                    WebSocket 接入点（FoldEngine 插件长连接）
 //  并用 FileSystemWatcher 监控 Modules 目录下的 *.fdll 模块包。
@@ -52,6 +53,59 @@ async Task BroadcastAsync(string json)
     }
 }
 
+// ---- .fdll 模块包（ZIP）读取：manifest.json + timeline.json ----
+// 合规标签由 FoldEngine 依据 manifest.tags 注入服务器名前缀，
+// 因此 manifest 必须原样下发给插件，不能被丢弃。
+var jsonOpts = new JsonSerializerOptions
+{
+    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+};
+
+string? ReadEntry(ZipArchive zip, string entryName)
+{
+    var entry = zip.Entries.FirstOrDefault(e =>
+        string.Equals(e.FullName, entryName, StringComparison.OrdinalIgnoreCase));
+    if (entry == null) return null;
+    using var reader = new StreamReader(entry.Open(), Encoding.UTF8);
+    return reader.ReadToEnd();
+}
+
+(string? Manifest, string? Timeline, string? Error) LoadModule(string moduleName)
+{
+    var file = Path.Combine(modulesDir, moduleName + ".fdll");
+    if (!File.Exists(file)) return (null, null, "module not found");
+    try
+    {
+        using var zip = ZipFile.OpenRead(file);
+        var manifest = ReadEntry(zip, "manifest.json");
+        var timeline = ReadEntry(zip, "timeline.json");
+        if (string.IsNullOrWhiteSpace(manifest)) return (null, null, "manifest.json missing");
+        if (string.IsNullOrWhiteSpace(timeline)) return (null, null, "timeline.json missing");
+        return (manifest, timeline, null);
+    }
+    catch (InvalidDataException)
+    {
+        return (null, null, "not a valid ZIP package (encrypted .fdll is not supported yet)");
+    }
+}
+
+// 读取模块并下发 play 指令；成功返回 null，失败返回错误文本。
+async Task<string?> SendPlayCommandAsync(string moduleName)
+{
+    var (manifest, timeline, error) = LoadModule(moduleName);
+    if (error != null) return error;
+
+    await BroadcastAsync(JsonSerializer.Serialize(new
+    {
+        type = "command",
+        command = "play",
+        module = moduleName,
+        manifest,
+        timeline
+    }, jsonOpts));
+    return null;
+}
+
 // ---- 图片 → JSON 颜色矩阵 → 推送给全部插件客户端 ----
 // url == "test" → 本地 8x6 渐变图；url == "smiley" → 本地 8x6 彩色笑脸（零网络依赖）
 async Task<ImageFrame> PushImageAsync(string url, int maxWidth, int maxHeight, float duration)
@@ -72,18 +126,33 @@ async Task<ImageFrame> PushImageAsync(string url, int maxWidth, int maxHeight, f
     return frame;
 }
 
-// ---- 处理插件发来的请求（当前支持 image-request） ----
+// ---- 处理插件发来的请求（image-request / trigger） ----
 async Task HandleClientMessage(string msg)
 {
     try
     {
         using var doc = JsonDocument.Parse(msg);
         if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
-        if (typeEl.GetString() == "image-request" &&
+        var type = typeEl.GetString();
+
+        if (type == "image-request" &&
             doc.RootElement.TryGetProperty("url", out var urlEl) &&
             !string.IsNullOrEmpty(urlEl.GetString()))
         {
             await PushImageAsync(urlEl.GetString()!, 8, 6, 8f);
+            return;
+        }
+
+        // 游戏内 `fold module <name>` 指令：由主程序读取 .fdll 并回推 play 指令
+        if (type == "trigger" &&
+            doc.RootElement.TryGetProperty("module", out var moduleEl) &&
+            !string.IsNullOrEmpty(moduleEl.GetString()))
+        {
+            var module = moduleEl.GetString()!;
+            var error = await SendPlayCommandAsync(module);
+            Console.WriteLine(error == null
+                ? $"[FoldEdge] 已下发模块: {module}"
+                : $"[FoldEdge] 模块下发失败 ({module}): {error}");
         }
     }
     catch (Exception ex)
@@ -168,20 +237,12 @@ app.MapGet("/api/status", () => Results.Ok(new
     modules = Directory.GetFiles(modulesDir, "*.fdll").Select(Path.GetFileName).ToArray()
 }));
 
-// ---- POST /api/trigger/{moduleName}：下发播放指令 ----
+// ---- POST /api/trigger/{moduleName}：读取 .fdll 并下发播放指令 ----
 app.MapPost("/api/trigger/{moduleName}", async (string moduleName) =>
 {
-    var file = Path.Combine(modulesDir, moduleName + ".fdll");
-    if (!File.Exists(file))
-        return Results.NotFound(new { error = $"module '{moduleName}' not found" });
-
-    await BroadcastAsync(JsonSerializer.Serialize(new
-    {
-        type = "command",
-        command = "play",
-        module = moduleName,
-        sentAt = DateTime.UtcNow
-    }));
+    var error = await SendPlayCommandAsync(moduleName);
+    if (error != null)
+        return Results.NotFound(new { error = $"module '{moduleName}': {error}" });
 
     return Results.Ok(new { sent = true, module = moduleName, clients = clients.Count });
 });
