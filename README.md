@@ -58,10 +58,13 @@ Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**�
 | 特性 | 说明 |
 | --- | --- |
 | **模块化内容** | `.fdll` 是自包含 ZIP 包（manifest / timeline / subtitles / assets），可独立分发 |
-| **时间轴调度** | 按秒驱动的动作序列：`SHOW_TEXT` / `SHOW_IMAGE` / `PLAY_VIDEO` / `CLEAR` |
+| **完整时间轴动作** | `SHOW_TEXT` / `SHOW_IMAGE` / `PLAY_VIDEO` / `PLAY_AUDIO` / `CHANGE_ROLE` / `SPAWN_ITEM` / `CONTROL_DOOR` / `CLEAR` |
+| **服务端游戏动作** | `CHANGE_ROLE` / `SPAWN_ITEM` / `CONTROL_DOOR` 直接调用 LabAPI 原生包装器，无需客户端装模组 |
+| **服务端全局音频** | `PLAY_AUDIO` 用 LabAPI `SpeakerToy` 播放非空间音效，WAV 自动重采样到 48 kHz |
 | **真实图片渲染** | 服务端不接触图片：FoldEdge 用 ImageSharp 解码并降维为像素矩阵，插件纯渲染 |
-| **全屏视频** | FoldClient 用 `VideoPlayer` + `RenderTexture` 播放 MP4/WebM，带原声 |
-| **合规标签强制注入** | manifest 含 `18+`/`GORE` 时，服务端名自动加前缀，重载后依然生效 |
+| **全屏视频** | FoldClient 用 `VideoPlayer` + `RenderTexture` 播放 MP4/WebM，带原声，F9 急停 |
+| **合规标签强制注入** | manifest 含 `18+`/`GORE` 时，服务器名自动加前缀，重载后依然生效 |
+| **AES 加密模块** | `.fdll` 支持 `FOLDENC1`（AES-256-CBC）加密，主程序与插件均在内存解密，不落盘 |
 | **零第三方依赖（服务端）** | 插件仅依赖 LabAPI，手写 JSON 解析，不引入 `System.Web.Extensions` 等易崩程序集 |
 | **i18n** | FoldEdge 内置 `locales/zh-CN.json` / `en-US.json` |
 | **热更新感知** | FoldEdge 用 `FileSystemWatcher` 监控 `Modules/*.fdll` |
@@ -87,6 +90,7 @@ dotnet run
 ```
 
 > LabAPI 插件目录以 `LabApi-2000.yml` 中的 `plugin_paths` 为准（默认为 `global` 与端口目录）。
+> 本地编译 FoldEngine 前，需把游戏 `SCPSL_Data/Managed` 下的 `Assembly-CSharp.dll`、`CommandSystem.Core.dll`、`UnityEngine.CoreModule.dll`、`Mirror.dll` 复制到 `FoldEngine/libs/`（该目录不入库）。
 
 ### 3.3 游戏内指令
 
@@ -123,22 +127,42 @@ demo.fdll  (ZIP)
 }
 ```
 
-`timeline.json`
+`timeline.json`（裸数组或 `{ "entries": [...] }` 均可）
 
 ```json
 [
-  { "time": 0, "action": "SHOW_TEXT",  "url": "Fold Edge 模块加载成功" },
+  { "time": 0, "action": "SHOW_TEXT",  "text": "Fold Edge 模块加载成功" },
   { "time": 2, "action": "SHOW_IMAGE", "url": "smiley" },
-  { "time": 4, "action": "CLEAR",      "url": "" }
+  { "time": 4, "action": "CLEAR" }
 ]
 ```
 
-打包（Windows PowerShell）：
+### 4.1 时间轴动作（与实现一致）
+
+| 动作 | 目标 | 参数 | 说明 |
+| --- | --- | --- | --- |
+| `SHOW_TEXT` | 客户端 | `text`（或 `url`）、`duration` | 文本广播 / 字幕 |
+| `SHOW_IMAGE` | 客户端 | `url`（或 `test` / `smiley`） | 全屏图片 |
+| `PLAY_VIDEO` | 客户端 | `url` | 全屏视频（MP4 / WebM） |
+| `PLAY_AUDIO` | 服务端 | `url`（WAV）、`volume`、`loop` | SpeakerToy 全局非空间音效 |
+| `CHANGE_ROLE` | 服务端 | `playerId`、`role` | 强制切换角色，如 `Scp096` |
+| `SPAWN_ITEM` | 服务端 | `itemId`，`playerId` 或 `position` | 发放到背包或在地图坐标生成 |
+| `CONTROL_DOOR` | 服务端 | `doorName`、`state` | `open` / `close` / `lock` / `unlock` / `toggle` |
+| `CLEAR` | 客户端 | 无 | 清除当前覆盖层 |
+
+> `PLAY_AUDIO` 仅支持 WAV（PCM 8/16/24/32 或 float32），内部混为单声道并重采样到 48000 Hz；MP3/OGG 请先转码。`role` / `itemId` 使用游戏枚举名（`PlayerRoles.RoleTypeId` / `InventorySystem.Items.ItemType`），大小写不敏感。
+
+### 4.2 打包（含加密）
 
 ```powershell
-Compress-Archive -Path manifest.json,timeline.json -DestinationPath demo.zip -Force
-Move-Item demo.zip "FoldEdge\Modules\demo.fdll" -Force
+# 明文 ZIP
+.\tools\pack-fdll.ps1 -Manifest .\manifest.json -Timeline .\timeline.json -Output .\FoldEdge\Modules\demo.fdll
+
+# AES-256-CBC 加密（FOLDENC1 容器）
+.\tools\pack-fdll.ps1 -Manifest .\manifest.json -Timeline .\timeline.json -Output .\FoldEdge\Modules\demo.fdll -Encrypt
 ```
+
+加密包由 FoldEdge 自动识别文件头并在内存解密；加密模块的播放指令以 `enc` 字段密文下发，插件在内存解密后再执行。预设密钥随引擎分发，属于**防随手解包**级别的混淆，不是强 DRM。
 
 ---
 
@@ -185,18 +209,22 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 ├── FoldEdge/          # 外部主程序（.NET 8 / ASP.NET Core / ImageSharp / i18n）
 │   ├── locales/       # zh-CN.json / en-US.json
 │   ├── Modules/       # .fdll 模块目录（运行时自动创建，不入库）
-│   ├── Program.cs     # API + WebSocket + 模块读取
+│   ├── Program.cs     # API + WebSocket + 模块读取 + AES 解密
 │   ├── ImageService.cs# 图片下载 / 解码 / 降维
 │   └── Loc.cs         # 多语言
 ├── FoldEngine/        # 服务端插件（LabAPI 1.1.7 / net48）
 │   ├── FoldCore.cs        # 插件入口 + fold 指令 + 合规标签
 │   ├── FoldUIManager.cs   # 时间轴调度 + 像素帧渲染 + 动作分发
+│   ├── ActionExecutor.cs  # PLAY_AUDIO / CHANGE_ROLE / SPAWN_ITEM / CONTROL_DOOR
 │   ├── FoldEdgeClient.cs  # WebSocket 客户端 + 指令处理
+│   ├── FoldCrypto.cs      # AES-256-CBC 解密（与主程序同密钥）
 │   └── MiniJson.cs        # 零依赖 JSON 解析
 ├── FoldClient/        # 客户端插件（BepInEx 5 + HarmonyX）
 │   ├── FoldPlugin.cs      # 入口
 │   ├── HintPatcher.cs     # TMP 文本拦截（[FOLD_IMG] / [FOLD_VIDEO]）
 │   └── FoldUIRenderer.cs  # 全屏图片 / 视频渲染 + F9 急停
+├── tools/
+│   └── pack-fdll.ps1  # 模块打包（明文 / AES 加密）
 └── docs/
     └── fdll-spec.md   # .fdll 1.0.0 规范
 ```

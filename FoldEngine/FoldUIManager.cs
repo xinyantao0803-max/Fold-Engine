@@ -10,8 +10,9 @@ namespace FoldEngine
     public struct PlaylistItem
     {
         public float Time;    // 触发时间（秒）
-        public string Action; // 动作：text / image / clear
-        public string Url;    // CDN 地址（纯文本广播时作为文本内容）
+        public string Action; // 动作：SHOW_TEXT / SHOW_IMAGE / PLAY_VIDEO / PLAY_AUDIO / CHANGE_ROLE / SPAWN_ITEM / CONTROL_DOOR / CLEAR
+        public string Url;    // CDN 地址（文本动作时作为文本内容）
+        public string Raw;    // 原始 JSON 片段，供动作执行器读取 playerId / role / itemId 等扩展参数
     }
 
     /// <summary>
@@ -45,16 +46,27 @@ namespace FoldEngine
             if (string.IsNullOrEmpty(timelineJson)) return items;
 
             var body = MiniJson.ExtractArrayBody(timelineJson, "entries");
+            if (string.IsNullOrEmpty(body))
+            {
+                // 规范允许 timeline.json 直接是裸数组 [...]，也兼容 { "entries": [...] }
+                var trimmed = timelineJson.Trim();
+                if (trimmed.StartsWith("[") && trimmed.EndsWith("]") && trimmed.Length >= 2)
+                {
+                    body = trimmed.Substring(1, trimmed.Length - 2).Trim();
+                }
+            }
             if (string.IsNullOrEmpty(body)) return items;
 
             foreach (var chunk in MiniJson.SplitObjects(body))
             {
                 var action = MiniJson.GetStringValue(chunk, "action");
-                if (string.IsNullOrEmpty(action)) action = "text";
+                if (string.IsNullOrEmpty(action)) action = "SHOW_TEXT";
                 var url = MiniJson.GetStringValue(chunk, "url") ?? string.Empty;
+                // SHOW_TEXT 允许使用 "text" 字段代替 "url"
+                if (url.Length == 0) url = MiniJson.GetStringValue(chunk, "text") ?? string.Empty;
                 var time = MiniJson.GetNumberValue(chunk, "time", 0f);
 
-                items.Add(new PlaylistItem { Time = time, Action = action, Url = url });
+                items.Add(new PlaylistItem { Time = time, Action = action, Url = url, Raw = chunk });
             }
             items.Sort((a, b) => a.Time.CompareTo(b.Time));
             return items;
@@ -233,7 +245,7 @@ namespace FoldEngine
             }
         }
 
-        /// <summary>停止当前播放并清理。</summary>
+        /// <summary>停止当前播放并清理（含服务端扬声器）。</summary>
         public void Stop()
         {
             lock (_gate)
@@ -243,6 +255,7 @@ namespace FoldEngine
                 _cts.Dispose();
                 _cts = null;
             }
+            ActionExecutor.StopAll();
         }
 
         /// <summary>后台倒计时主循环：按时间轴顺序逐项执行（Task.Delay 实现）。</summary>
@@ -284,7 +297,7 @@ namespace FoldEngine
             Broadcast($"[Fold] 模块 {module} 播放结束");
         }
 
-        /// <summary>执行单个动作。</summary>
+        /// <summary>执行单个动作：媒体动作走广播，游戏动作交给 ActionExecutor（LabAPI 原生 API）。</summary>
         private void ExecuteAction(string module, PlaylistItem item)
         {
             switch (item.Action.ToLowerInvariant())
@@ -292,13 +305,29 @@ namespace FoldEngine
                 case "clear":
                     Broadcast($"[Fold] {module} 画面已清除");
                     break;
+                case "show_image":
                 case "image":
                     PlayImage(item.Url);
                     break;
                 case "play_video":
                     PlayVideo(item.Url);
                     break;
-                default: // text：纯文本广播
+                case "play_audio":
+                case "change_role":
+                case "spawn_item":
+                case "control_door":
+                    try
+                    {
+                        ActionExecutor.Execute(module, item);
+                    }
+                    catch (Exception ex)
+                    {
+                        LabApi.Features.Console.Logger.Warn($"[Fold] {module}: {item.Action} 执行失败: {ex.Message}");
+                    }
+                    break;
+                case "show_text":
+                case "text":
+                default: // 纯文本广播
                     Broadcast($"[Fold][{item.Time:F0}s] {item.Url}");
                     break;
             }

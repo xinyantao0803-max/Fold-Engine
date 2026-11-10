@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FoldEdge;
@@ -70,39 +71,67 @@ string? ReadEntry(ZipArchive zip, string entryName)
     return reader.ReadToEnd();
 }
 
-(string? Manifest, string? Timeline, string? Error) LoadModule(string moduleName)
+(string? Manifest, string? Timeline, bool Encrypted, string? Error) LoadModule(string moduleName)
 {
     var file = Path.Combine(modulesDir, moduleName + ".fdll");
-    if (!File.Exists(file)) return (null, null, "module not found");
+    if (!File.Exists(file)) return (null, null, false, "module not found");
     try
     {
-        using var zip = ZipFile.OpenRead(file);
+        var raw = File.ReadAllBytes(file);
+        // 文件头不是 ZIP（"PK"）时按 FOLDENC1 加密容器处理，仅在内存中解密
+        bool encrypted = raw.Length >= FoldCrypto.Magic.Length &&
+                         Encoding.ASCII.GetString(raw, 0, FoldCrypto.Magic.Length) == FoldCrypto.Magic;
+        var payload = encrypted ? FoldCrypto.Decrypt(raw, FoldCrypto.Magic.Length) : raw;
+
+        using var zip = new ZipArchive(new MemoryStream(payload), ZipArchiveMode.Read);
         var manifest = ReadEntry(zip, "manifest.json");
         var timeline = ReadEntry(zip, "timeline.json");
-        if (string.IsNullOrWhiteSpace(manifest)) return (null, null, "manifest.json missing");
-        if (string.IsNullOrWhiteSpace(timeline)) return (null, null, "timeline.json missing");
-        return (manifest, timeline, null);
+        if (string.IsNullOrWhiteSpace(manifest)) return (null, null, encrypted, "manifest.json missing");
+        if (string.IsNullOrWhiteSpace(timeline)) return (null, null, encrypted, "timeline.json missing");
+        return (manifest, timeline, encrypted, null);
+    }
+    catch (CryptographicException)
+    {
+        return (null, null, true, "AES decrypt failed (key/IV mismatch or corrupted package)");
     }
     catch (InvalidDataException)
     {
-        return (null, null, "not a valid ZIP package (encrypted .fdll is not supported yet)");
+        return (null, null, false, "not a valid ZIP / FOLDENC1 package");
     }
 }
 
 // 读取模块并下发 play 指令；成功返回 null，失败返回错误文本。
+// 加密模块不再下发明文，而是用预设密钥加密负载放进 enc 字段，由插件内存解密。
 async Task<string?> SendPlayCommandAsync(string moduleName)
 {
-    var (manifest, timeline, error) = LoadModule(moduleName);
+    var (manifest, timeline, encrypted, error) = LoadModule(moduleName);
     if (error != null) return error;
 
-    await BroadcastAsync(JsonSerializer.Serialize(new
+    string payload;
+    if (encrypted)
     {
-        type = "command",
-        command = "play",
-        module = moduleName,
-        manifest,
-        timeline
-    }, jsonOpts));
+        var inner = JsonSerializer.Serialize(new { manifest, timeline }, jsonOpts);
+        payload = JsonSerializer.Serialize(new
+        {
+            type = "command",
+            command = "play",
+            module = moduleName,
+            enc = FoldCrypto.EncryptToBase64(inner)
+        }, jsonOpts);
+    }
+    else
+    {
+        payload = JsonSerializer.Serialize(new
+        {
+            type = "command",
+            command = "play",
+            module = moduleName,
+            manifest,
+            timeline
+        }, jsonOpts);
+    }
+
+    await BroadcastAsync(payload);
     return null;
 }
 
@@ -295,3 +324,39 @@ app.Run();
 
 /// <summary>POST /api/image 请求体（默认 8x6）。</summary>
 public sealed record ImageRequest(string Url, int MaxWidth = 8, int MaxHeight = 6, float Duration = 8f);
+
+/// <summary>
+/// 预设密钥 AES-256-CBC（PKCS7）：
+///   · 解密 FOLDENC1 加密 .fdll（内存解密，不落盘）；
+///   · 加密加密模块的下发负载（enc 字段），由 FoldEngine 内存解密。
+/// 密钥与 IV 必须与 FoldEngine/FoldCrypto.cs 完全一致。
+/// </summary>
+internal static class FoldCrypto
+{
+    public const string Magic = "FOLDENC1";
+    private static readonly byte[] Key = Encoding.UTF8.GetBytes("Fold-Engine-Preset-AES-Key-2026!");
+    private static readonly byte[] Iv = Encoding.UTF8.GetBytes("FoldEngine-IV-01");
+
+    public static byte[] Decrypt(byte[] data, int offset)
+    {
+        using var aes = Aes.Create();
+        aes.Key = Key;
+        aes.IV = Iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+        using var decryptor = aes.CreateDecryptor();
+        return decryptor.TransformFinalBlock(data, offset, data.Length - offset);
+    }
+
+    public static string EncryptToBase64(string plain)
+    {
+        var bytes = Encoding.UTF8.GetBytes(plain);
+        using var aes = Aes.Create();
+        aes.Key = Key;
+        aes.IV = Iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+        using var encryptor = aes.CreateEncryptor();
+        return Convert.ToBase64String(encryptor.TransformFinalBlock(bytes, 0, bytes.Length));
+    }
+}

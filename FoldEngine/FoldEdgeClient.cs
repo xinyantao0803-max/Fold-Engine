@@ -198,6 +198,15 @@ namespace FoldEngine
             var manifest = MiniJson.GetStringValue(json, "manifest") ?? string.Empty;
             var timeline = MiniJson.GetStringValue(json, "timeline") ?? string.Empty;
 
+            // 加密 .fdll：主程序以 enc 字段下发 AES-256-CBC 密文，在内存解密后再解析
+            var enc = MiniJson.GetStringValue(json, "enc");
+            if (!string.IsNullOrEmpty(enc))
+            {
+                var payload = FoldCrypto.DecryptToJson(enc);
+                manifest = MiniJson.GetStringValue(payload, "manifest") ?? string.Empty;
+                timeline = MiniJson.GetStringValue(payload, "timeline") ?? string.Empty;
+            }
+
             // 合规标签来自 .fdll 的 manifest.json，由主程序原样下发
             FoldCore.ApplyComplianceTags(PlaylistTransport.ParseTags(manifest));
 

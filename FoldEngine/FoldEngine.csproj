@@ -22,5 +22,10 @@
       <HintPath>libs\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- 仅编译期引用：LabAPI Player 包装器的 NetworkIdentity 重载需要 -->
+    <Reference Include="Mirror">
+      <HintPath>libs\Mirror.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>

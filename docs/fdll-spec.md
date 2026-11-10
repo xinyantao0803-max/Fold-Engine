@@ -7,7 +7,7 @@ The `.fdll` file is the core data container for Fold Engine. It is a self-contai
 
 ## 1. Package Structure
 
-A standard `.fdll` file is essentially a ZIP archive (often with a custom extension for encryption). Upon extraction, it should contain the following structure:
+A standard `.fdll` file is a ZIP archive with a custom extension. It can optionally be wrapped in an AES-256 encrypted container (see §5). Upon extraction, it contains the following structure:
 
 ```text
 MyModule.fdll (ZIP)
@@ -52,26 +52,39 @@ To protect developers, server owners, and players globally, tags are mandatory f
 
 This is the heart of the module. It is an array of actions, sorted by timestamp (in seconds). FoldEngine reads this and dispatches instructions to the game server or FoldClient.
 
-### Action Types
+The file can be a bare array `[ ... ]` or an object `{ "entries": [ ... ] }`; both are accepted.
 
-| Action Type  | Target | Description                             | Key Parameters                     |
-| ------------ | ------ | --------------------------------------- | ---------------------------------- |
-| PLAY_VIDEO   | Client | Full-screen video playback (WebM/MP4).  | url (CDN link)                     |
-| SHOW_IMAGE   | Client | Full-screen image overlay.              | url (CDN link), duration           |
-| PLAY_AUDIO   | Client | Background music or 2D audio.           | url, volume                        |
-| SHOW_TEXT    | Client | Display rich text (subtitles/broadcast).| text, duration                     |
-| CHANGE_ROLE  | Server | Force a player to switch roles.         | playerId, role (e.g., "Scp173")    |
-| SPAWN_ITEM   | Server | Spawn a specific item in the world.     | itemId, position                   |
-| CONTROL_DOOR | Server | Open, close, or lock a door.            | doorName, state                    |
+### Action Types (implemented in 1.0.0)
+
+| Action         | Target | Description                                    | Parameters                                              |
+| -------------- | ------ | ---------------------------------------------- | ------------------------------------------------------- |
+| `SHOW_TEXT`    | Client | Text broadcast / subtitle line.                | `text` (or `url`), `duration` (seconds, default 1.5)     |
+| `SHOW_IMAGE`   | Client | Full-screen image overlay.                     | `url` (CDN link, or `test` / `smiley` local images)      |
+| `PLAY_VIDEO`   | Client | Full-screen video playback (MP4 / WebM).       | `url`                                                   |
+| `PLAY_AUDIO`   | Server | Global non-spatial sound via LabAPI SpeakerToy. | `url` (WAV: PCM 8/16/24/32 or float32), `volume`, `loop` |
+| `CHANGE_ROLE`  | Server | Force a player to switch roles.                | `playerId` (SteamID64, `@steam` optional), `role`       |
+| `SPAWN_ITEM`   | Server | Give an item to a player or spawn it in world. | `itemId`, `playerId` **or** `position` (`"x,y,z"`)      |
+| `CONTROL_DOOR` | Server | Open / close / lock / unlock a map door.       | `doorName` (e.g. `HczArmory`), `state`                   |
+| `CLEAR`        | Client | Clear the current overlay.                     | none                                                    |
+
+`CONTROL_DOOR` states: `open`, `close`, `lock`, `unlock`, `toggle` (default).
+
+**Audio note:** `PLAY_AUDIO` decodes WAV natively and resamples to `AudioTransmitter.SampleRate` (48000 Hz, mono). Other codecs (MP3/OGG) must be transcoded to WAV before packaging.
+
+**Role / item ids:** `role` and `itemId` are parsed with `Enum.TryParse` against `PlayerRoles.RoleTypeId` and `InventorySystem.Items.ItemType` (case-insensitive), e.g. `Scp096`, `KeycardO5`.
 
 ### Example timeline.json
 
 ```json
 [
-  { "time": 0.0, "action": "PLAY_VIDEO", "url": "https://cdn.fold.com/intro.webm" },
-  { "time": 5.5, "action": "SHOW_TEXT", "text": "Warning: SCP-001 breach imminent.", "duration": 3.0 },
-  { "time": 10.0, "action": "CHANGE_ROLE", "playerId": "765611980...", "role": "Scp096" },
-  { "time": 10.0, "action": "PLAY_AUDIO", "url": "https://cdn.fold.com/roar.ogg", "volume": 0.8 }
+  { "time": 0.0,  "action": "SHOW_TEXT",    "text": "Warning: SCP-001 breach imminent.", "duration": 3.0 },
+  { "time": 2.0,  "action": "SHOW_IMAGE",   "url": "https://cdn.fold.com/warning.png" },
+  { "time": 5.0,  "action": "PLAY_VIDEO",   "url": "https://cdn.fold.com/intro.webm" },
+  { "time": 10.0, "action": "PLAY_AUDIO",   "url": "https://cdn.fold.com/alarm.wav", "volume": 0.8 },
+  { "time": 12.0, "action": "CHANGE_ROLE",  "playerId": "76561198000000000", "role": "Scp096" },
+  { "time": 13.0, "action": "SPAWN_ITEM",   "itemId": "KeycardO5", "position": "0,1,0" },
+  { "time": 14.0, "action": "CONTROL_DOOR", "doorName": "HczArmory", "state": "lock" },
+  { "time": 16.0, "action": "CLEAR" }
 ]
 ```
 
@@ -87,7 +100,33 @@ For accessibility and localization, subtitles can be separated from the timeline
 
 ## 5. Security & Licensing
 
-**Encryption:** Developers may encrypt `.fdll` packages (e.g., AES-256) to protect their intellectual property. FoldEdge requires the decryption key to be provided via the Web API.
+### 5.1 Encrypted packages (FOLDENC1)
+
+An encrypted `.fdll` is a plain ZIP encrypted in memory with AES-256-CBC (PKCS7) and prefixed with the magic bytes `FOLDENC1`:
+
+```text
+FOLDENC1 | AES-256-CBC(zip bytes)     # 8-byte ASCII magic, then ciphertext
+```
+
+- Key: `Fold-Engine-Preset-AES-Key-2026!` (32 bytes, UTF-8)
+- IV: `FoldEngine-IV-01` (16 bytes, UTF-8)
+- Mode: CBC, padding PKCS7
+
+FoldEdge detects the magic automatically, decrypts in memory (never writes plaintext to disk), and reads `manifest.json` / `timeline.json`. For encrypted modules the play command is sent to FoldEngine as an AES-encrypted `enc` field instead of plaintext JSON, and the plugin decrypts it in memory.
+
+> **Honest security note:** the preset key ships with the engine, so this is content obfuscation against casual extraction, not strong DRM. Treat it as a speed bump, not a vault.
+
+The repository includes `tools/pack-fdll.ps1` (Windows PowerShell 5.1, no external dependencies):
+
+```powershell
+# plain ZIP
+.\tools\pack-fdll.ps1 -Manifest .\manifest.json -Timeline .\timeline.json -Output .\FoldEdge\Modules\demo.fdll
+
+# AES-256 encrypted
+.\tools\pack-fdll.ps1 -Manifest .\manifest.json -Timeline .\timeline.json -Output .\FoldEdge\Modules\demo.fdll -Encrypt
+```
+
+Any language can produce a compatible package: build the ZIP, then apply AES-256-CBC with the key/IV above and prepend `FOLDENC1`.
 
 **Commercial Use:** The `.fdll` module itself is a standalone work. While Fold Engine uses PFN 1.0 (non-commercial), developers retain 100% rights to sell or monetize their `.fdll` modules.
 
