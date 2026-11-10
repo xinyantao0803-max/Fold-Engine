@@ -4,3 +4,4 @@ libs/
 *.user
 Modules/
 SCP Secret Laboratory/
+LabAPI.dll
