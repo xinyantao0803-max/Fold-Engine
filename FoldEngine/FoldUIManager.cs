@@ -30,6 +30,14 @@ namespace FoldEngine
             return string.IsNullOrEmpty(id) ? "unknown" : id;
         }
 
+        /// <summary>解析 manifest.json 的合规标签数组（18+ / GORE / FLASH / POLITICS 等）。</summary>
+        public static List<string> ParseTags(string manifestJson)
+        {
+            return string.IsNullOrEmpty(manifestJson)
+                ? new List<string>()
+                : MiniJson.ExtractStringArray(manifestJson, "tags");
+        }
+
         /// <summary>解析 timeline.json，返回按时间升序排列的播放列表。</summary>
         public static List<PlaylistItem> ParseTimeline(string timelineJson)
         {
@@ -285,7 +293,14 @@ namespace FoldEngine
                     Broadcast($"[Fold] {module} 画面已清除");
                     break;
                 case "image":
+                    // 向客户端广播 [FOLD_IMG] 标记：装有 FoldClient 的玩家会拦截并渲染真实图片，
+                    // 未装模组的玩家看到的是标记文本（MVP 取舍）。
+                    Broadcast("[FOLD_IMG]" + item.Url);
                     ShowImage(item.Url);
+                    break;
+                case "play_video":
+                    // PLAY_VIDEO：向客户端下发视频指令（FoldClient 拦截 [FOLD_VIDEO] 并全屏播放 WebM/MP4）。
+                    Broadcast("[FOLD_VIDEO]" + item.Url);
                     break;
                 default: // text：纯文本广播
                     Broadcast($"[Fold][{item.Time:F0}s] {item.Url}");

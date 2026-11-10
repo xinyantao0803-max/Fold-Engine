@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using CommandSystem;
 using LabApi.Features.Console;
 using LabApi.Features.Wrappers;
@@ -62,6 +63,45 @@ namespace FoldEngine
         {
             UI?.RenderImageFrame(frame.Width, frame.Height, frame.Pixels, frame.Duration);
         }
+
+        /// <summary>
+        /// 合规标签 → 服务器名警告前缀（仅用于告知知情权，不做审查）。
+        /// 含 18+ / GORE 时强制注入 [18+]；FLASH / POLITICS 按规范注入对应前缀。
+        /// </summary>
+        public static void ApplyComplianceTags(List<string> tags)
+        {
+            if (tags == null || tags.Count == 0) return;
+
+            var prefix = new StringBuilder();
+            foreach (var tag in tags)
+            {
+                switch (tag.Trim().ToUpperInvariant())
+                {
+                    case "18+":
+                    case "GORE":
+                        if (!ContainsPrefix(prefix, "[18+]")) prefix.Append("[18+] ");
+                        break;
+                    case "FLASH":
+                        if (!ContainsPrefix(prefix, "[FLASH]")) prefix.Append("[FLASH] ");
+                        break;
+                    case "POLITICS":
+                        if (!ContainsPrefix(prefix, "[POLITICS]")) prefix.Append("[POLITICS] ");
+                        break;
+                }
+            }
+            if (prefix.Length == 0) return;
+
+            string prefixStr = prefix.ToString();
+            string current = Server.ServerListName ?? string.Empty;
+            if (current.StartsWith(prefixStr)) return; // 已注入过，避免重复
+            Server.ServerListName = prefixStr + current;
+            Logger.Info($"[Fold] 合规标签生效，服务器名已加前缀: {prefixStr.Trim()}");
+        }
+
+        private static bool ContainsPrefix(StringBuilder sb, string prefix)
+        {
+            return sb.ToString().Contains(prefix);
+        }
     }
 
     /// <summary>fold 控制台指令：执行一次内置测试播放。</summary>
@@ -87,6 +127,13 @@ namespace FoldEngine
                 new PlaylistItem { Time = 5f, Action = "clear", Url = string.Empty }
             };
             _ = ui.Play("demo", items);
+
+            // 模拟读取 .fdll manifest.json 并应用合规标签（规范 v1.0.0）
+            const string demoManifest =
+                "{\"id\":\"com.fold.demo\",\"name\":\"demo\",\"version\":\"1.0.0\",\"author\":\"Fold\"," +
+                "\"engineVersion\":\">=1.0.0\",\"description\":\"Fold demo module\"," +
+                "\"tags\":[\"18+\",\"GORE\",\"INTENSE\"]}";
+            FoldCore.ApplyComplianceTags(PlaylistTransport.ParseTags(demoManifest));
 
             response = "[Fold] 测试播放已开始: demo";
             return true;

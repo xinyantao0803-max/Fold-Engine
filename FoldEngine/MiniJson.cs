@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
@@ -105,6 +106,23 @@ namespace FoldEngine
             if (close <= open) return null;
             var body = json.Substring(open + 1, close - open - 1).Trim();
             return body.Length == 0 ? null : body;
+        }
+
+        /// <summary>提取 "key" 对应的字符串数组（如 manifest 的 tags）。</summary>
+        public static List<string> ExtractStringArray(string json, string key)
+        {
+            var result = new List<string>();
+            var body = ExtractArrayBody(json, key);
+            if (string.IsNullOrEmpty(body)) return result;
+
+            foreach (var item in body.Split(','))
+            {
+                var s = item.Trim();
+                if (s.StartsWith("\"") && s.EndsWith("\"") && s.Length >= 2)
+                    s = s.Substring(1, s.Length - 2);
+                if (s.Length > 0) result.Add(s);
+            }
+            return result;
         }
 
         /// <summary>把数组内容按 "},{" 切分为已去除首尾花括号的对象片段。</summary>
