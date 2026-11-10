@@ -1,0 +1,6 @@
+bin/
+obj/
+libs/
+*.user
+Modules/
+SCP Secret Laboratory/

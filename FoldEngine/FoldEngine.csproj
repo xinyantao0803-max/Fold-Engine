@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>FoldEngine</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="LabAPI">
+      <HintPath>..\LabAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>libs\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="CommandSystem.Core">
+      <HintPath>libs\CommandSystem.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- 仅编译期引用：ServerConsole.AddLog 的基类解析需要（运行时由游戏本体提供） -->
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>libs\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
