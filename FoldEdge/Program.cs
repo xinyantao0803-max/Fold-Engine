@@ -24,6 +24,10 @@ var startTime = DateTime.UtcNow;
 var modulesDir = Path.Combine(app.Environment.ContentRootPath, "Modules");
 Directory.CreateDirectory(modulesDir);
 
+// 多语言：默认 zh-CN（后续可从配置或请求头切换，见 Loc.Load）
+Loc.Load("zh-CN");
+Console.WriteLine($"[FoldEdge] {Loc.Get("service.start")}");
+
 // ---- WebSocket 客户端（游戏内 FoldEngine 插件）连接表 ----
 var clients = new ConcurrentDictionary<Guid, WebSocket>();
 
@@ -63,7 +67,7 @@ async Task<ImageFrame> PushImageAsync(string url, int maxWidth, int maxHeight, f
         duration,
         frames = frame.Frames
     });
-    Console.WriteLine($"[FoldEdge] 图片已转换 {frame.Width}x{frame.Height}，推送 {clients.Count} 个客户端");
+    Console.WriteLine($"[FoldEdge] {Loc.Get("image.converted", frame.Width, frame.Height, clients.Count)}");
     await BroadcastAsync(payload);
     return frame;
 }
@@ -84,14 +88,14 @@ async Task HandleClientMessage(string msg)
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[FoldEdge] 客户端消息处理失败: {ex.Message}");
+        Console.WriteLine($"[FoldEdge] {Loc.Get("image.failed", ex.Message)}");
     }
 }
 
 // ---- FileSystemWatcher：监控 Modules/*.fdll ----
 async Task OnModuleChanged(object sender, FileSystemEventArgs e)
 {
-    Console.WriteLine($"[FoldEdge] 模块变化: {e.ChangeType} {e.Name}");
+    Console.WriteLine($"[FoldEdge] {Loc.Get("module.changed", Path.GetFileNameWithoutExtension(e.Name), e.ChangeType.ToString())}");
     await BroadcastAsync(JsonSerializer.Serialize(new
     {
         type = "module-updated",
@@ -109,7 +113,7 @@ watcher.Created += (s, e) => _ = OnModuleChanged(s, e);
 watcher.Changed += (s, e) => _ = OnModuleChanged(s, e);
 watcher.Deleted += (s, e) => _ = OnModuleChanged(s, e);
 watcher.EnableRaisingEvents = true;
-Console.WriteLine($"[FoldEdge] 已开始监控: {modulesDir}");
+Console.WriteLine($"[FoldEdge] {Loc.Get("modules.watching", modulesDir)}");
 
 // ---- WebSocket 服务：FoldEngine 插件接入点 ----
 app.Map("/ws", async context =>
@@ -123,7 +127,7 @@ app.Map("/ws", async context =>
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
     var id = Guid.NewGuid();
     clients[id] = socket;
-    Console.WriteLine($"[FoldEdge] 客户端接入: {id}");
+    Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.connected", id)}");
 
     var buffer = new byte[16384];
     var sb = new StringBuilder();
@@ -144,12 +148,12 @@ app.Map("/ws", async context =>
     }
     catch (Exception ex) when (ex is WebSocketException or IOException or OperationCanceledException)
     {
-        Console.WriteLine($"[FoldEdge] 客户端连接异常断开: {ex.Message}");
+        Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.error", ex.Message)}");
     }
     finally
     {
         clients.TryRemove(id, out _);
-        Console.WriteLine($"[FoldEdge] 客户端断开: {id}");
+        Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.disconnected", id)}");
     }
 });
 

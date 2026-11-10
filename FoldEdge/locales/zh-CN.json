@@ -1,0 +1,13 @@
+{
+  "service.name": "Fold 引擎主程序",
+  "service.start": "FoldEdge 已启动",
+  "modules.watching": "已开始监控模块目录: {0}",
+  "module.changed": "模块变化: {0} {1}",
+  "ws.client.connected": "客户端接入: {0}",
+  "ws.client.disconnected": "客户端断开: {0}",
+  "ws.client.error": "客户端连接异常断开: {0}",
+  "image.converted": "图片已转换 {0}x{1}，推送 {2} 个客户端",
+  "image.failed": "图片处理失败: {0}",
+  "image.notImage": "响应不是图片 (Content-Type: {0})，前 50 字符: {1}",
+  "status.ok": "正常"
+}

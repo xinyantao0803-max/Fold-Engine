@@ -1,0 +1,13 @@
+{
+  "service.name": "Fold Engine Host",
+  "service.start": "FoldEdge started",
+  "modules.watching": "Watching modules directory: {0}",
+  "module.changed": "Module changed: {0} {1}",
+  "ws.client.connected": "Client connected: {0}",
+  "ws.client.disconnected": "Client disconnected: {0}",
+  "ws.client.error": "Client connection error: {0}",
+  "image.converted": "Image converted {0}x{1}, pushed to {2} client(s)",
+  "image.failed": "Image processing failed: {0}",
+  "image.notImage": "Response is not an image (Content-Type: {0}), first 50 chars: {1}",
+  "status.ok": "OK"
+}
