@@ -31,6 +31,15 @@ FoldClient is a **passive, ECDSA-authenticated media renderer**:
 
 **What we are proposing for whitelisted distribution.** If Northwood approves a dedicated component, we intend to ship a minimal loader that embeds only the signed FoldClient assembly and exposes no plugin directory or third-party DLL loading path. The loader would verify the embedded assembly's ECDSA signature before loading. This is a **design proposal, not a shipped capability**; it must be reviewed before it is claimed.
 
+**Proposed launcher architecture (design commitment, not implemented).**
+
+- **Not a generic BepInEx distribution.** The proposed launcher would be a purpose-built, minimal injection layer derived from the same low-level loading principles, with all general-purpose plugin discovery removed. It would not ship BepInEx's plugin directory, configuration UI, or third-party extension surface.
+- **Zero generic plugin interface.** The proposed loader would expose no API, directory, manifest, or command-line path for loading arbitrary DLLs. There would be exactly one load path.
+- **Single signed target.** The launcher would be hard-coded to load only the embedded FoldClient assembly, and only after verifying its ECDSA signature. Any other assembly would be rejected before execution.
+- **Memory hygiene goals.** The design goal is to keep the loader's footprint limited to the media renderer: no gameplay hooks, no entity or player-data access, no console/ESP surfaces. These properties would have to be validated by Northwood's review of the actual loader source, not asserted in advance.
+
+**Status.** No launcher code exists in this repository today; the current build is a standard BepInEx 6 IL2CPP plugin. We will submit the launcher source for review before any distribution, and we will not describe it as a shipped or "physically closed" product until that review is complete.
+
 **What this can and cannot do.** ECDSA verification ensures that only media commands signed by FoldEdge are rendered by FoldClient. It does **not**, and cannot, make a modified game client incapable of ESP or other cheats. A custom loader can restrict what *our* loader loads, not what a determined attacker does to their own client. We do not claim "physically impossible".
 
 **Review request.** We invite Northwood's security team to review the source in this repository, especially the ECDSA verification path (`FoldClient.IL2CPP/MediaVerifier.cs`) and the media-only renderer (`FoldClient.IL2CPP/FoldOverlay.cs`). We are happy to answer questions or adjust the design before distribution.
