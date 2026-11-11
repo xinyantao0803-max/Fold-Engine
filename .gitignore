@@ -1,6 +1,7 @@
 bin/
 obj/
 libs/
+keys/
 *.user
 Modules/
 SCP Secret Laboratory/

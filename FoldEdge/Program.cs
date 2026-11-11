@@ -30,6 +30,11 @@ Directory.CreateDirectory(modulesDir);
 Loc.Load("zh-CN");
 Console.WriteLine($"[FoldEdge] {Loc.Get("service.start")}");
 
+// ECDSA 密钥：首次启动生成 keys/fold-ecdsa-private.pem，公钥需硬编码进 FoldClient
+MediaSigner.Initialize();
+Console.WriteLine("[FoldEdge] ECDSA public key (SPKI PEM):");
+Console.WriteLine(MediaSigner.PublicKeyPem);
+
 // ---- WebSocket 客户端（游戏内 FoldEngine 插件）连接表 ----
 var clients = new ConcurrentDictionary<Guid, WebSocket>();
 

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -7,38 +8,81 @@ using System.Text.Json.Nodes;
 namespace FoldEdge
 {
     /// <summary>
-    /// 媒体指令签名器：HMAC-SHA256(kind + "\n" + timestamp + "\n" + payloadJson)。
-    /// 签名在 FoldEdge 生成，FoldEngine 只原样透传，FoldClient 负责验签。
+    /// 媒体指令签名器（非对称）：ECDSA P-256 + SHA-256。
+    /// 私钥只保存在 FoldEdge 的 keys/ 目录，公钥硬编码在 FoldClient。
+    /// 签名内容：kind + "\n" + payloadJson + "\n" + timestampMs + "\n" + nonce。
+    /// FoldEngine 不持有任何密钥，只原样透传签名标记。
     /// </summary>
     internal static class MediaSigner
     {
-        private const string Secret = "Fold-Media-HMAC-Key-2026!";
-        private const int MaxAgeSeconds = 5;
+        private static readonly string KeyDirectory =
+            Path.Combine(Directory.GetCurrentDirectory(), "keys");
+
+        private static readonly string PrivateKeyPath =
+            Path.Combine(KeyDirectory, "fold-ecdsa-private.pem");
+
+        private static readonly string PublicKeyPath =
+            Path.Combine(KeyDirectory, "fold-ecdsa-public.pem");
+
+        private static readonly ECDsa SigningKey = LoadOrCreateKey();
 
         private static readonly JsonSerializerOptions PayloadJson = new()
         {
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
 
-        public static long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        /// <summary>当前公钥（SPKI PEM），需要与 FoldClient 中硬编码的一致。</summary>
+        public static string PublicKeyPem => SigningKey.ExportSubjectPublicKeyInfoPem();
 
-        public static string Sign(string kind, long timestamp, string payloadJson)
+        /// <summary>启动时调用，确保密钥已生成并输出公钥。</summary>
+        public static void Initialize()
         {
-            var message = Encoding.UTF8.GetBytes(kind + "\n" + timestamp + "\n" + payloadJson);
-            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(Secret));
-            return Convert.ToHexString(hmac.ComputeHash(message)).ToLowerInvariant();
+            _ = SigningKey;
         }
 
-        /// <summary>生成 [FOLD_XXX]&lt;ts&gt;|&lt;sig&gt;|&lt;payloadJson&gt; 标记。</summary>
+        private static ECDsa LoadOrCreateKey()
+        {
+            Directory.CreateDirectory(KeyDirectory);
+
+            if (File.Exists(PrivateKeyPath))
+            {
+                var existing = ECDsa.Create();
+                existing.ImportFromPem(File.ReadAllText(PrivateKeyPath));
+                File.WriteAllText(PublicKeyPath, existing.ExportSubjectPublicKeyInfoPem());
+                return existing;
+            }
+
+            var created = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            File.WriteAllText(PrivateKeyPath, created.ExportPkcs8PrivateKeyPem());
+            File.WriteAllText(PublicKeyPath, created.ExportSubjectPublicKeyInfoPem());
+            return created;
+        }
+
+        private static long NowMilliseconds() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        private static string CreateNonce() => Guid.NewGuid().ToString("N");
+
+        public static string Sign(string kind, string payloadJson, long timestampMs, string nonce)
+        {
+            var data = Encoding.UTF8.GetBytes(
+                kind + "\n" + payloadJson + "\n" + timestampMs + "\n" + nonce);
+            var signature = SigningKey.SignData(
+                data, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+            return Base64UrlEncode(signature);
+        }
+
+        /// <summary>生成 [FOLD_XXX]&lt;tsMs&gt;|&lt;nonce&gt;|&lt;sig&gt;|&lt;payloadJson&gt; 标记。</summary>
         public static string BuildMarker(string prefix, string kind, string payloadJson)
         {
-            long ts = Now();
-            return prefix + ts + "|" + Sign(kind, ts, payloadJson) + "|" + payloadJson;
+            long ts = NowMilliseconds();
+            string nonce = CreateNonce();
+            return prefix + ts + "|" + nonce + "|" + Sign(kind, payloadJson, ts, nonce) +
+                   "|" + payloadJson;
         }
 
         /// <summary>
-        /// 给 timeline 中的媒体条目补齐 ts / sig / payload 字段。
-        /// FoldEngine 不做任何计算，只把这些字段原样拼进广播。
+        /// 给 timeline 中的媒体条目补齐 ts / nonce / sig / payload。
+        /// FoldEngine 不计算任何签名，只把这些字段原样拼进广播。
         /// </summary>
         public static string SignTimeline(string timelineJson)
         {
@@ -63,7 +107,6 @@ namespace FoldEdge
             }
             catch (JsonException)
             {
-                // 时间轴不是合法 JSON 时保持原样，由 FoldEngine 侧报错
                 return timelineJson;
             }
         }
@@ -103,13 +146,20 @@ namespace FoldEdge
                     return;
             }
 
-            long ts = Now();
+            long ts = NowMilliseconds();
+            string nonce = CreateNonce();
             entry["ts"] = ts;
-            entry["sig"] = Sign(kind, ts, payload);
+            entry["nonce"] = nonce;
+            entry["sig"] = Sign(kind, payload, ts, nonce);
             entry["payload"] = payload;
         }
 
-        /// <summary>客户端允许的最大时间偏差（秒），与 FoldClient 保持一致。</summary>
-        public static int TimestampTolerance => MaxAgeSeconds;
+        private static string Base64UrlEncode(byte[] bytes)
+        {
+            return Convert.ToBase64String(bytes)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+        }
     }
 }

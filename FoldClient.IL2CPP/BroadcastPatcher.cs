@@ -39,7 +39,7 @@ namespace FoldClient.IL2CPP
             if (!MediaVerifier.TryVerify(kind, body, out var payload))
             {
                 FoldPlugin.LogSource?.LogWarning(
-                    $"[FoldClient] 拒绝未通过验签的媒体指令 ({kind})：签名错误或时间戳超过 5 秒");
+                    "[FoldClient] Security Alert: Invalid Signature! 已丢弃该媒体指令");
                 return true;
             }
 

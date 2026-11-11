@@ -13,8 +13,9 @@ namespace FoldEngine
         public string Action; // 动作：SHOW_TEXT / SHOW_IMAGE / PLAY_VIDEO / PLAY_AUDIO / CHANGE_ROLE / SPAWN_ITEM / CONTROL_DOOR / CLEAR
         public string Url;    // CDN 地址（文本动作时作为文本内容）
         public string Raw;    // 原始 JSON 片段，供动作执行器读取 playerId / role / itemId 等扩展参数
-        public long Ts;       // FoldEdge 签名时间戳（Unix 秒）
-        public string Sig;    // FoldEdge HMAC-SHA256 签名（插件不生成、不校验，只透传）
+        public long Ts;       // FoldEdge 签名时间戳（Unix 毫秒）
+        public string Nonce;  // 一次性随机数（客户端防重放）
+        public string Sig;    // FoldEdge ECDSA 签名（插件不生成、不校验，只透传）
         public string Payload; // 已签名的媒体负载 JSON（插件原样拼进广播）
     }
 
@@ -76,6 +77,7 @@ namespace FoldEngine
                     Url = url,
                     Raw = chunk,
                     Ts = (long)MiniJson.GetNumberValue(chunk, "ts", 0f),
+                    Nonce = MiniJson.GetStringValue(chunk, "nonce") ?? string.Empty,
                     Sig = MiniJson.GetStringValue(chunk, "sig") ?? string.Empty,
                     Payload = MiniJson.GetStringValue(chunk, "payload") ?? string.Empty
                 });
@@ -357,12 +359,14 @@ namespace FoldEngine
         /// <summary>
         /// 媒体指令：timeline 中已带 FoldEdge 签名时原样拼接透传；
         /// 没有签名（例如 fold 指令现场触发）则请求 FoldEdge 现场签名。
+        /// 标记格式：[FOLD_XXX]&lt;tsMs&gt;|&lt;nonce&gt;|&lt;sig&gt;|&lt;payloadJson&gt;
         /// </summary>
         private void BroadcastMedia(string prefix, PlaylistItem item, string kind)
         {
-            if (!string.IsNullOrEmpty(item.Sig) && !string.IsNullOrEmpty(item.Payload))
+            if (!string.IsNullOrEmpty(item.Sig) && !string.IsNullOrEmpty(item.Payload) &&
+                !string.IsNullOrEmpty(item.Nonce))
             {
-                Broadcast(prefix + item.Ts + "|" + item.Sig + "|" + item.Payload, 8f);
+                Broadcast(prefix + item.Ts + "|" + item.Nonce + "|" + item.Sig + "|" + item.Payload, 8f);
                 return;
             }
 

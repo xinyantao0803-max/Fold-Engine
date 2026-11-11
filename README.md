@@ -9,6 +9,8 @@
 [![Client](https://img.shields.io/badge/client-BepInEx%205%20%2F%20HarmonyX-4b8bbe)](#)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-black)](LICENSE)
 
+> **安全认证（ECDSA）**：所有面向客户端的媒体指令必须由 FoldEdge 持有的 ECDSA P-256 私钥签名；FoldClient 内置对应公钥验签，并拒绝签名不匹配、超过 3 秒或 nonce 重复的指令。必须明确：这能阻止第三方伪造“官方签发”的媒体指令，但**不能**阻止被篡改的客户端读取游戏内存。本项目不宣称“物理上不可能”或“绝对无法用于 ESP”。
+
 ---
 
 ## 1. 架构
@@ -64,7 +66,7 @@ Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**�
 | **真实图片渲染** | 服务端不接触图片：FoldEdge 用 ImageSharp 解码并降维为像素矩阵，插件纯渲染 |
 | **全屏视频** | FoldClient 用 `VideoPlayer` + `RenderTexture` 播放 MP4/WebM，带原声，F9 急停（Mono 与 IL2CPP 双版本） |
 | **客户端音频 / 字幕** | `[FOLD_AUDIO]` 走 `UnityWebRequestMultimedia` 2D 播放，`[FOLD_TEXT]` 用 TMP 在媒体下方渲染字幕 |
-| **媒体指令验签** | FoldEdge 端 HMAC-SHA256 + 时间戳，FoldEngine 透传，FoldClient 拒绝伪造或超过 5 秒的指令 |
+| **媒体指令验签** | FoldEdge 用 ECDSA P-256 私钥签名，FoldClient 内置公钥验签，拒绝伪造、超过 3 秒或重放的指令 |
 | **合规标签强制注入** | manifest 含 `18+`/`GORE` 时，服务器名自动加前缀，重载后依然生效 |
 | **AES 加密模块** | `.fdll` 支持 `FOLDENC1`（AES-256-CBC）加密，主程序与插件均在内存解密，不落盘 |
 | **零第三方依赖（服务端）** | 插件仅依赖 LabAPI，手写 JSON 解析，不引入 `System.Web.Extensions` 等易崩程序集 |
@@ -156,7 +158,7 @@ demo.fdll  (ZIP)
 | `CONTROL_DOOR` | 服务端 | `doorName`、`state` | `open` / `close` / `lock` / `unlock` / `toggle` |
 | `CLEAR` | 客户端 | 无 | 清除当前覆盖层 |
 
-> 客户端媒体指令由 FoldEdge 用 HMAC-SHA256 签名，格式为 `[FOLD_XXX]<unix秒>|<签名>|<payloadJson>`；FoldEngine 原样透传，FoldClient 验签并拒绝超过 5 秒的指令。`role` / `itemId` 使用游戏枚举名（`PlayerRoles.RoleTypeId` / `InventorySystem.Items.ItemType`），大小写不敏感。
+> 客户端媒体指令由 FoldEdge 用 ECDSA P-256 签名，格式为 `[FOLD_XXX]<unix毫秒>|<nonce>|<签名>|<payloadJson>`；FoldEngine 原样透传，FoldClient 验签并拒绝超过 3 秒或 nonce 重放的指令。`role` / `itemId` 使用游戏枚举名（`PlayerRoles.RoleTypeId` / `InventorySystem.Items.ItemType`），大小写不敏感。
 
 ### 4.2 打包（含加密）
 
@@ -216,6 +218,8 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 │   ├── locales/       # zh-CN.json / en-US.json
 │   ├── Modules/       # .fdll 模块目录（运行时自动创建，不入库）
 │   ├── Program.cs     # API + WebSocket + 模块读取 + AES 解密
+│   ├── MediaSigner.cs # ECDSA P-256 签名 + 时间轴签名
+│   ├── keys/          # 私钥/公钥（首次启动生成，不入库）
 │   ├── ImageService.cs# 图片下载 / 解码 / 降维
 │   └── Loc.cs         # 多语言
 ├── FoldEngine/        # 服务端插件（LabAPI 1.1.7 / net48）
@@ -232,7 +236,7 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 ├── FoldClient.IL2CPP/ # 客户端插件（BepInEx 6 IL2CPP，Unity 6 客户端）
 │   ├── FoldPlugin.cs      # BasePlugin 入口 + ClassInjector
 │   ├── BroadcastPatcher.cs# 拦截 Broadcast.RpcAddElement（不依赖 TMP 劫持）
-│   ├── MediaVerifier.cs   # HMAC-SHA256 + 5 秒时间窗验签
+│   ├── MediaVerifier.cs   # ECDSA P-256 验签 + 3 秒时间窗 + nonce 防重放
 │   └── FoldOverlay.cs     # 图片 / 视频 / 音频 / 字幕 + F9 急停
 ├── tools/
 │   └── pack-fdll.ps1  # 模块打包（明文 / AES 加密）
@@ -248,7 +252,7 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 
 **数据隔离**：雷达、玩家位置显示等能力必须由服务端或 FoldEdge 先生成图片/文字，再以 `[FOLD_IMG]` / `[FOLD_TEXT]` 下发。客户端只负责“像浏览器一样画出来”，不参与数据生成，也不接触实体数据。
 
-**签名机制**：媒体指令使用 HMAC-SHA256 + Unix 时间戳，签名不匹配或超过 5 秒会被拒绝。必须说明：密钥随客户端分发，因此这套机制用于阻止随意伪造、误触发和简单重放，**不是不可破解的强安全边界**，也无法阻止被篡改的客户端读取游戏内存。任何“physically impossible”或“绝对无法用于 ESP”的绝对化表述都不准确，本项目不这样宣称。
+**签名机制**：媒体指令使用 ECDSA P-256（SHA-256）+ Unix 毫秒时间戳 + 一次性 nonce。FoldEdge 私钥保存在 `FoldEdge/keys/fold-ecdsa-private.pem`（不入库），FoldClient 只内置公钥；签名不匹配、时间偏差超过 3 秒或 nonce 重复都会被拒绝。需要明确：公钥在客户端中，因此这套机制用于阻止第三方伪造“官方签发”的媒体指令和简单重放，**不是不可破解的强安全边界**，也无法阻止被篡改的客户端读取游戏内存。任何“physically impossible”或“绝对无法用于 ESP”的绝对化表述都不准确，本项目不这样宣称。
 
 **内容责任**：FoldClient 仅提供渲染能力。服务器所有者对其上传、分发和展示的所有内容（包括图片、音频、视频、文字）承担全部法律责任与合规责任。Fold 开发团队不提供、不审核任何内容。
 

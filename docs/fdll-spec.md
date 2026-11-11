@@ -71,13 +71,13 @@ The file can be a bare array `[ ... ]` or an object `{ "entries": [ ... ] }`; bo
 
 `CONTROL_DOOR` states: `open`, `close`, `lock`, `unlock`, `toggle` (default).
 
-**Signed media markers:** client-bound media actions are signed by FoldEdge with HMAC-SHA256 and delivered as:
+**Signed media markers:** client-bound media actions are signed by FoldEdge with **ECDSA P-256 (SHA-256)** and delivered as:
 
 ```text
-[FOLD_VIDEO]<unix-seconds>|<hex-signature>|<payload-json>
+[FOLD_VIDEO]<unix-milliseconds>|<nonce>|<base64url-signature>|<payload-json>
 ```
 
-The signature covers `kind + "\n" + timestamp + "\n" + payload-json` (`kind` = `video` / `image` / `audio` / `text`). FoldEngine forwards the marker unchanged; FoldClient rejects signatures that do not match or timestamps older/newer than 5 seconds.
+The signature covers `kind + "\n" + payload-json + "\n" + timestamp-ms + "\n" + nonce` (`kind` = `video` / `image` / `audio` / `text`). FoldEngine forwards the marker unchanged; FoldClient verifies it with the embedded public key and rejects signatures that do not match, timestamps outside a 3-second window, or reused nonces.
 
 **Audio note:** `PLAY_AUDIO` (client) supports OGG/MP3 via `UnityWebRequestMultimedia`. `PLAY_AUDIO_SERVER` decodes WAV natively and resamples to 48000 Hz mono. Other server-side codecs must be transcoded to WAV first.
 
