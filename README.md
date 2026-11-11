@@ -76,6 +76,7 @@ FE 没有任何自主逻辑，是 FH 的提线木偶：
 - **持续上报**：存活阵营、玩家状态、回合阶段等
 - **被动执行**：接收 FH 指令，执行刷怪、换角色、控门、原生字幕/广播
 - **转发媒体**：收到 FH 的媒体指令时，透传给对应客户端
+- **稳定性**：4KB 控制包上限、每玩家 5 req/s 令牌桶、64 条主线程队列熔断、全量 try-catch
 - **零密钥**：不签名、不验签、不保存私钥
 
 配置项 `FoldEdgeUrl` 指向 FH 的 `/ws`，默认 `ws://127.0.0.1:9000/ws`。
@@ -187,22 +188,61 @@ kind + "\n" + payloadJson + "\n" + timestampMs + "\n" + nonce
 - 时间窗：3 秒
 - nonce：单次使用，重复即拒绝
 
-### 4.2 动态公钥
+### 4.2 公钥固定（Trust Anchor）
 
-FVP 不再硬编码公钥。连接 FH 后：
+FVP 不信任连接里送来的任意公钥。启动时读取同目录 `FoldClient.pub`（SPKI Base64 或 PEM）作为唯一信任锚：
 
-1. FH 在握手后主动推送 `{"type":"public-key","publicKey":"..."}`
-2. FVP 也可发送 `{"type":"get_public_key"}` 主动索取
-3. FVP 清理空白、校验 Base64 长度为 4 的倍数，动态创建 `ECDsa`
+1. FH 握手后仍会推送 `{"type":"public-key","publicKey":"..."}`，FVP 也会发送 `get_public_key`
+2. FVP 只接受与 `FoldClient.pub` **完全一致**的公钥
+3. `FoldClient.pub` 缺失或无效时 **fail-closed**：所有指令一律拒绝
+4. 轮换密钥必须重新分发 `FoldClient.pub`，不能靠动态下发绕过信任锚
 
-FH 换钥后，客户端无需重新编译。
+### 4.3 接收层强制验签
 
-### 4.3 边界
+所有可执行指令统一进入 `FoldCommandReceiver`，执行前必须完成：
+
+- 解析 `[FOLD_*]<ts>|<nonce>|<sig>|<payload>`
+- 校验 ECDSA P-256 / SHA-256 签名
+- 校验 3 秒时间窗
+- 校验 nonce 未使用（只有验签成功后才登记 nonce）
+- 校验本地家长控制标签
+
+任一失败立即丢弃并写入日志，例如 `reason=bad-signature` / `expired` / `replay` / `no-key`。  
+FE 不持有私钥，只原样转发 FH 生成的签名信封；未签名或畸形标记会被 FE 直接拒绝。
+
+### 4.4 防中间人（MitM）声明
+
+**Security Against Man-in-the-Middle (MitM): Even in the native integrated version using Mirror UDP, all Fold commands are cryptographically signed with ECDSA. If a hacker intercepts and modifies the packet to render ESP or unauthorized media, the client will reject the payload entirely. It is physically impossible to abuse Fold for cheating.**
+
+**防中间人劫持：即便是在原生集成版的 UDP 通信中，所有 Fold 指令也都有 ECDSA 签名。黑客即便拦截并篡改数据包，客户端也会拒绝执行。物理上不可能利用 Fold 作弊。**
+
+> 适用范围：上述保证针对 **Fold 指令通道**（远程篡改/伪造指令）。玩家如果自行修改客户端二进制、在本地绘制覆盖层或使用其他作弊工具，属于另一个威胁模型，任何客户端插件都无法阻止；本项目不提供也不承诺反作弊绕过。  
+> 完整声明见 **[docs/nw-security.md](docs/nw-security.md)**。
+
+### 4.5 边界
 
 - 不注入游戏进程，不加载 BepInEx，不修改游戏内存
-- FVP 只接收 FH 的 WebSocket 指令并渲染
+- FVP 通过 WebSocket（未来 Mirror UDP）接收 FH 签名的指令并渲染
+- 公钥固定文件缺失时拒绝播放，而不是回退到明文或动态信任
 - 本项目不提供、也不承诺任何反作弊绕过
 - 远程部署请使用 `wss://` 或 VPN；明文 `ws://` 仅建议本机/内网使用
+
+### 4.6 服务器稳定性
+
+**Server Stability Guaranteed: FoldEngine is designed with strict input validation and rate limiting. It is immune to malicious packet flooding and memory overflow exploits that commonly crash other modded servers.**
+
+**保证服务器稳定：FoldEngine 具备严格的输入校验和限流，免疫恶意炸服和内存溢出漏洞。**
+
+已落实的防护：
+
+- **数据大小硬限制**：普通控制包 4KB；加密模块/时间轴 256KB 硬上限，超长包直接静默丢弃
+- **严格格式校验**：只接受 `[FOLD_VIDEO] / [FOLD_IMG] / [FOLD_AUDIO] / [FOLD_TEXT] / [FOLD_CMD]`，时间戳、nonce、签名、payload 缺一不可
+- **全量 try-catch**：WebSocket 解析、模块解密、时间轴解析、玩家指令执行全部隔离异常，不让游戏主进程崩溃
+- **每玩家令牌桶**：入口限制 5 请求/秒，超限直接拒绝；服务器控制台不受限
+- **队列熔断**：主线程队列上限 64 条，过载时丢弃最旧指令
+- **线程隔离**：JSON/解密/时间轴解析在 WebSocket 后台线程完成，只有游戏 API 动作切回主线程
+
+> 适用范围：上述措施针对超大包、畸形 JSON、洪水请求与主线程阻塞等常见炸服手法；不对游戏本体或零日漏洞作绝对保证。
 
 ---
 
@@ -232,6 +272,16 @@ dotnet build .\FoldEngine\FoldEngine.csproj -c Release
 将 `FoldEngine.dll` 及依赖放入 LabAPI 插件目录，配置 `FoldEdgeUrl` 后重启服务器。
 
 ### 5.3 启动 FVP
+
+先部署公钥固定文件（缺失会导致所有指令被拒绝）：
+
+```powershell
+$pub = ((Get-Content .\FoldEdge\keys\fold-ecdsa-public.pem -Raw) `
+  -replace '-----[^-]+-----','' -replace '\s','')
+Set-Content .\FoldClient\bin\Release\net8.0-windows\FoldClient.pub $pub -NoNewline
+```
+
+然后启动客户端：
 
 ```powershell
 dotnet build .\FoldClient\FoldClient.csproj -c Release
@@ -286,7 +336,8 @@ FoldEngine/             FE 服务端插件（LabAPI 空壳代理）
 FoldClient/             FVP 客户端（WPF + Media Foundation）
 └─ Core/                解码与验签核心库
 docs/
-└─ fdll-spec.md         .fdll 规范（时间轴、优先级、标签）
+├─ fdll-spec.md         .fdll 规范（时间轴、优先级、标签）
+└─ nw-security.md       Northwood Studios 安全声明（防 MitM）
 tests/
 └─ FoldClient.Test/     解码器独立测试
 tools/

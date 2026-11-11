@@ -19,28 +19,84 @@ namespace FoldClient
     {
         private static readonly object Gate = new object();
         private static ECDsa _verificationKey;
+        private static string _pinnedKeyBase64 = string.Empty;
         private static readonly Dictionary<string, long> SeenNonces =
             new Dictionary<string, long>(StringComparer.Ordinal);
 
         /// <summary>
+        /// 固定公钥（trust anchor）。必须在接收任何动态公钥之前调用。
+        /// 未设置时 fail-closed：所有指令都会被拒绝。
+        /// </summary>
+        public static bool SetPinnedKey(string base64)
+        {
+            string clean = CleanBase64(base64);
+            if (clean.Length == 0)
+            {
+                _pinnedKeyBase64 = string.Empty;
+                LogKey("pinned key is empty; all commands will be rejected");
+                return false;
+            }
+
+            _pinnedKeyBase64 = clean;
+            LogKey("pinned key set: length=" + clean.Length);
+            return SetPublicKey(clean);
+        }
+
+        /// <summary>从 FoldClient.pub（Base64 或 PEM）加载固定公钥；缺失即 fail-closed。</summary>
+        public static bool LoadPinnedKeyFromFile(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    _pinnedKeyBase64 = string.Empty;
+                    LogKey("pinned key missing: " + path + "; all commands will be rejected");
+                    return false;
+                }
+
+                return SetPinnedKey(File.ReadAllText(path));
+            }
+            catch (Exception ex)
+            {
+                _pinnedKeyBase64 = string.Empty;
+                LogKeyError(ex, path, string.Empty);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 由 FH 通过 WebSocket 动态下发的 SPKI Base64 公钥。
-        /// 自动清理 PEM 头尾与所有空白，并强制长度为 4 的倍数。
+        /// 只接受与固定公钥完全一致的值，否则拒绝。
         /// </summary>
         public static bool SetPublicKey(string base64)
         {
-            if (string.IsNullOrWhiteSpace(base64))
+            string clean = CleanBase64(base64);
+            if (clean.Length == 0)
             {
                 LogKey("public key is empty");
                 return false;
             }
 
-            string clean = Regex.Replace(base64, @"-----[^-]+-----", string.Empty);
-            clean = Regex.Replace(clean, @"\s", string.Empty);
+            if (string.IsNullOrEmpty(_pinnedKeyBase64))
+            {
+                LogKey("no pinned public key; rejecting dynamic key");
+                return false;
+            }
+
+            bool matches = CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(clean),
+                Encoding.UTF8.GetBytes(_pinnedKeyBase64));
+
+            if (!matches)
+            {
+                LogKey("dynamic public key does not match pinned key; rejected");
+                return false;
+            }
 
             LogKey("public key length=" + clean.Length +
                    ", multipleOf4=" + (clean.Length % 4 == 0));
 
-            if (clean.Length == 0 || clean.Length % 4 != 0)
+            if (clean.Length % 4 != 0)
             {
                 LogKeyError(
                     new FormatException("public key length is not a multiple of 4"),
@@ -64,6 +120,15 @@ namespace FoldClient
                 LogKeyError(ex, base64, clean);
                 return false;
             }
+        }
+
+        private static string CleanBase64(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            string clean = Regex.Replace(value, @"-----[^-]+-----", string.Empty);
+            return Regex.Replace(clean, @"\s", string.Empty);
         }
 
         private static void LogKey(string message)
@@ -102,7 +167,18 @@ namespace FoldClient
 
         public static bool TryVerify(string kind, string body, out string payload)
         {
+            return TryVerify(kind, body, out payload, out _);
+        }
+
+        /// <summary>
+        /// 验签入口：失败时 reason 给出具体原因（malformed/expired/replay/bad-signature/no-key）。
+        /// 只有完整验签通过后才会登记 nonce。
+        /// </summary>
+        public static bool TryVerify(string kind, string body, out string payload, out string reason)
+        {
             payload = null;
+            reason = "malformed";
+
             if (string.IsNullOrEmpty(body))
                 return false;
 
@@ -121,24 +197,25 @@ namespace FoldClient
             string signatureText = body.Substring(second + 1, third - second - 1);
             string payloadText = body.Substring(third + 1);
 
+            reason = "bad-timestamp";
             long timestamp;
             if (!long.TryParse(timestampText, NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out timestamp))
                 return false;
 
+            reason = "expired";
             long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (Math.Abs(now - timestamp) > FvpConfig.MaxAgeMilliseconds)
                 return false;
 
+            reason = "replay";
             lock (Gate)
             {
                 if (SeenNonces.ContainsKey(nonce))
                     return false;
-                SeenNonces[nonce] = timestamp;
-                if (SeenNonces.Count > 2048)
-                    PruneNonces(now);
             }
 
+            reason = "bad-signature-encoding";
             byte[] signature = Base64UrlDecode(signatureText);
             if (signature == null)
                 return false;
@@ -153,15 +230,34 @@ namespace FoldClient
 
             ECDsa key = Volatile.Read(ref _verificationKey);
             if (key == null)
+            {
+                reason = "no-key";
                 return false;
+            }
 
+            reason = "bad-signature";
             lock (Gate)
             {
                 if (!key.VerifyData(data, rawSignature, HashAlgorithmName.SHA256))
                     return false;
             }
 
+            // 只有签名验证通过后才登记 nonce，避免无效包消耗 nonce。
+            lock (Gate)
+            {
+                if (SeenNonces.ContainsKey(nonce))
+                {
+                    reason = "replay";
+                    return false;
+                }
+
+                SeenNonces[nonce] = timestamp;
+                if (SeenNonces.Count > 2048)
+                    PruneNonces(now);
+            }
+
             payload = payloadText;
+            reason = "ok";
             return true;
         }
 

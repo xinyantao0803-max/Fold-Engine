@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 using CommandSystem;
 using LabApi.Features.Console;
 using LabApi.Features.Wrappers;
@@ -18,7 +20,7 @@ namespace FoldEngine
         public override string Name => "FoldEngine";
         public override string Description => "The Next-Gen Media & Module Framework for SCP:SL.";
         public override string Author => "Fold Team";
-        public override Version Version => new Version(1, 0, 0);
+        public override Version Version => new Version(1, 0, 1);
         public override Version RequiredApiVersion => new Version(1, 1, 7);
 
         /// <summary>当前 UI 管理器实例（供 fold 指令调用）。</summary>
@@ -26,8 +28,83 @@ namespace FoldEngine
 
         private readonly FoldCommand _foldCommand = new FoldCommand();
 
+        // ---- 主线程调度：WS 接收线程只做校验/解析，游戏 API 统一回主线程执行 ----
+        private static SynchronizationContext _mainThread;
+        private static readonly ConcurrentQueue<Action> MainQueue =
+            new ConcurrentQueue<Action>();
+        private static int _queued;
+        private static int _drainScheduled;
+        private const int MaxQueued = 64;
+
+        /// <summary>
+        /// 把游戏内动作切回主线程；队列超过上限时丢弃最旧指令（熔断）。
+        /// </summary>
+        public static void RunOnMain(Action action)
+        {
+            if (action == null) return;
+
+            if (Interlocked.Increment(ref _queued) > MaxQueued)
+            {
+                if (MainQueue.TryDequeue(out _))
+                    Interlocked.Decrement(ref _queued);
+
+                Logger.Warn("[Fold] 指令队列过载，已丢弃最旧指令");
+            }
+
+            MainQueue.Enqueue(action);
+            ScheduleDrain();
+        }
+
+        private static void ScheduleDrain()
+        {
+            if (Interlocked.CompareExchange(ref _drainScheduled, 1, 0) != 0)
+                return;
+
+            var context = _mainThread;
+            if (context == null)
+            {
+                DrainMainQueue();
+                Interlocked.Exchange(ref _drainScheduled, 0);
+                return;
+            }
+
+            try
+            {
+                context.Post(_ =>
+                {
+                    Interlocked.Exchange(ref _drainScheduled, 0);
+                    DrainMainQueue();
+                }, null);
+            }
+            catch
+            {
+                Interlocked.Exchange(ref _drainScheduled, 0);
+                DrainMainQueue();
+            }
+        }
+
+        private static void DrainMainQueue()
+        {
+            while (MainQueue.TryDequeue(out Action action))
+            {
+                Interlocked.Decrement(ref _queued);
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[Fold] 主线程指令执行失败: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+
         public override void Enable()
         {
+            _mainThread = SynchronizationContext.Current;
+            if (_mainThread == null)
+                Logger.Warn("[Fold] 主线程 SynchronizationContext 不可用，动作将就地执行");
+
             Logger.Info("[Fold] 引擎加载成功");
 
             // 注入纯文本广播实现：服务端全局文字广播（网络包下发，不创建任何游戏对象）
@@ -52,6 +129,13 @@ namespace FoldEngine
             FoldEdgeClient.Instance.Stop();
             UI?.Stop();
             UI = null;
+
+            _mainThread = null;
+            while (MainQueue.TryDequeue(out _))
+            {
+            }
+            Interlocked.Exchange(ref _queued, 0);
+
             Server.GameConsoleCommandHandler.UnregisterCommand(_foldCommand);
 
             Logger.Info("[Fold] 引擎已卸载");
@@ -116,6 +200,30 @@ namespace FoldEngine
 
         public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
+            try
+            {
+                return ExecuteCore(arguments, sender, out response);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Fold] 指令执行异常: {ex.GetType().Name}: {ex.Message}");
+                response = "[Fold] 指令执行失败";
+                return false;
+            }
+        }
+
+        private bool ExecuteCore(ArraySegment<string> arguments, ICommandSender sender, out string response)
+        {
+            string senderKey = sender?.LogName;
+            bool isConsole = string.IsNullOrEmpty(senderKey) ||
+                             senderKey.IndexOf("CONSOLE", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!isConsole && !RateLimiter.TryAcquire(senderKey))
+            {
+                response = "[Fold] 请求过于频繁，请稍后再试";
+                return false;
+            }
+
             var ui = FoldCore.UI;
             if (ui == null)
             {
@@ -144,10 +252,15 @@ namespace FoldEngine
                         response = "用法: fold image <url>";
                         return false;
                     }
+                    if (imageUrl.Length > 2048)
+                    {
+                        response = "[Fold] URL 过长";
+                        return false;
+                    }
+
                     FoldEdgeClient.Instance.RequestMedia("image", url: imageUrl);
                     response = $"[Fold] 已请求 FoldEdge 签名并下发图片: {imageUrl}";
                     return true;
-
                 case "video":
                     var videoUrl = GetArg(arguments, 1);
                     if (string.IsNullOrEmpty(videoUrl))
@@ -155,6 +268,12 @@ namespace FoldEngine
                         response = "用法: fold video <url>";
                         return false;
                     }
+                    if (videoUrl.Length > 2048)
+                    {
+                        response = "[Fold] URL 过长";
+                        return false;
+                    }
+
                     FoldEdgeClient.Instance.RequestMedia("video", url: videoUrl);
                     response = $"[Fold] 已请求 FoldEdge 签名并下发视频: {videoUrl}";
                     return true;
@@ -166,6 +285,12 @@ namespace FoldEngine
                         response = "用法: fold audio <url> [volume 0-1]";
                         return false;
                     }
+                    if (audioUrl.Length > 2048)
+                    {
+                        response = "[Fold] URL 过长";
+                        return false;
+                    }
+
                     float volume = 1f;
                     var volumeText = GetArg(arguments, 2);
                     if (!string.IsNullOrEmpty(volumeText))
@@ -183,6 +308,12 @@ namespace FoldEngine
                         response = "用法: fold text <字幕内容>";
                         return false;
                     }
+                    if (subtitle.Length > 2048)
+                    {
+                        response = "[Fold] 字幕过长";
+                        return false;
+                    }
+
                     FoldEdgeClient.Instance.RequestMedia("text", text: subtitle);
                     response = "[Fold] 已请求 FoldEdge 签名并下发字幕";
                     return true;
@@ -194,6 +325,12 @@ namespace FoldEngine
                         response = "用法: fold module <name>（对应 FoldEdge/Modules/<name>.fdll）";
                         return false;
                     }
+                    if (!IsSafeModuleName(moduleName))
+                    {
+                        response = "[Fold] 非法模块名";
+                        return false;
+                    }
+
                     FoldEdgeClient.Instance.TriggerModule(moduleName);
                     response = $"[Fold] 已请求主程序加载模块: {moduleName}";
                     return true;
@@ -218,6 +355,24 @@ namespace FoldEngine
                     response = "用法: fold [demo|image <url>|video <url>|audio <url> [vol]|text <字幕>|module <name>|tags <a,b>]";
                     return false;
             }
+        }
+
+        private static bool IsSafeModuleName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length > 64)
+                return false;
+
+            foreach (char c in name)
+            {
+                bool allowed = (c >= 'a' && c <= 'z') ||
+                               (c >= 'A' && c <= 'Z') ||
+                               (c >= '0' && c <= '9') ||
+                               c == '_' || c == '-';
+                if (!allowed)
+                    return false;
+            }
+
+            return true;
         }
 
         private static string GetArg(ArraySegment<string> arguments, int index)

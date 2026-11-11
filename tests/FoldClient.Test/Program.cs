@@ -8,6 +8,10 @@ Console.WriteLine("========================================");
 Console.WriteLine(" FoldClient MfVideoDecoder 独立测试");
 Console.WriteLine("========================================");
 
+bool securityOk = FoldClient.Test.SecurityTests.Run();
+if (!securityOk)
+    Environment.Exit(1);
+
 string path = args.Length > 0
     ? args[0]
     : Path.GetFullPath(Path.Combine(
@@ -77,7 +81,7 @@ Console.WriteLine("expected   = " + (width * height * 4) + " bytes");
 Console.WriteLine("nonZero    = " + nonZero + " bytes");
 Console.WriteLine("elapsed    = " + clock.ElapsedMilliseconds + " ms");
 
-string output = Path.GetFullPath("first_frame.bmp");
+string output = Path.Combine(AppContext.BaseDirectory, "first_frame.bmp");
 SaveBmp(output, frame, width, height);
 
 Console.WriteLine("bmp        = " + output);

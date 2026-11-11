@@ -15,6 +15,7 @@ namespace FoldClient
     {
         private readonly string _url;
         private readonly OverlayWindow _overlay;
+        private readonly FoldCommandReceiver _receiver;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly object _gate = new object();
 
@@ -25,6 +26,7 @@ namespace FoldClient
         {
             _url = url;
             _overlay = overlay;
+            _receiver = new FoldCommandReceiver(overlay);
         }
 
         public void Start()
@@ -165,62 +167,12 @@ namespace FoldClient
                 if (!root.TryGetProperty("marker", out JsonElement markerElement))
                     return;
 
-                string marker = markerElement.GetString();
-                if (string.IsNullOrEmpty(marker))
-                    return;
-
-                int end = marker.IndexOf(']');
-                if (end <= 0)
-                    return;
-
-                string prefix = marker.Substring(0, end + 1);
-                string body = marker.Substring(end + 1);
-                string kind = KindFor(prefix);
-                if (kind == null)
-                    return;
-
-                if (!SignedMediaCommand.TryVerify(kind, body, out string payload))
-                {
-                    AppLog.Write("signature rejected: " + prefix);
-                    return;
-                }
-
-                if (!FvpConfig.Allows(payload))
-                {
-                    AppLog.Write("blocked by parental control");
-                    return;
-                }
-
-                string url = SignedMediaCommand.GetString(payload, "url");
-                if (string.IsNullOrEmpty(url) && kind != "text")
-                {
-                    AppLog.Write("media payload missing url: " + prefix);
-                    return;
-                }
-
-                if (kind == "video")
-                    _overlay.Dispatcher.BeginInvoke(new Action(() => _overlay.PlayVideo(url)));
-                else if (kind == "image")
-                    _overlay.Dispatcher.BeginInvoke(new Action(() => _overlay.PlayImage(url)));
-                else
-                    AppLog.Write("unsupported media kind: " + kind);
+                // 所有可执行指令统一进入验签接收层；失败直接丢弃。
+                _receiver.Receive(markerElement.GetString());
             }
             catch (Exception ex)
             {
                 AppLog.Write("message error: " + ex.Message);
-            }
-        }
-
-        private static string KindFor(string prefix)
-        {
-            switch (prefix)
-            {
-                case "[FOLD_VIDEO]": return "video";
-                case "[FOLD_IMG]": return "image";
-                case "[FOLD_AUDIO]": return "audio";
-                case "[FOLD_TEXT]": return "text";
-                case "[FOLD_CMD]": return "cmd";
-                default: return null;
             }
         }
 
