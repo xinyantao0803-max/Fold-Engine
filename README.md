@@ -29,18 +29,19 @@ FoldClient is a **passive, ECDSA-authenticated media renderer**:
 
 **What exists today.** `FoldClient.IL2CPP` is a BepInEx 6 (IL2CPP) plugin. The current development build is loaded by the standard BepInEx 6 loader. There is **no custom "Fold Launcher" in this repository yet**, and we will not describe the development build as a closed sandbox.
 
-**What we are proposing for whitelisted distribution.** If Northwood approves a dedicated component, we intend to ship a minimal loader that embeds only the signed FoldClient assembly and exposes no plugin directory or third-party DLL loading path. The loader would verify the embedded assembly's ECDSA signature before loading. This is a **design proposal, not a shipped capability**; it must be reviewed before it is claimed.
+**Our position on generic mod loaders.** Fold will **not** ship BepInEx, BepInEx-derived code, or any general-purpose mod loader as part of its whitelisted client distribution. We understand the risks these frameworks introduce, and we do not want them inside the review scope. The whitelisted distribution is intended to be independent of BepInEx.
 
-**Proposed launcher architecture (design commitment, not implemented).**
+**Current repository status.** The existing `FoldClient.IL2CPP` project is a development prototype loaded by standard BepInEx 6. It exists to validate the media renderer and the ECDSA verification path; it is **not** the artifact we intend to submit for whitelisting. **No custom loader exists in this repository today.**
 
-- **Not a generic BepInEx distribution.** The proposed launcher would be a purpose-built, minimal injection layer derived from the same low-level loading principles, with all general-purpose plugin discovery removed. It would not ship BepInEx's plugin directory, configuration UI, or third-party extension surface.
-- **Zero generic plugin interface.** The proposed loader would expose no API, directory, manifest, or command-line path for loading arbitrary DLLs. There would be exactly one load path.
-- **Single signed target.** The launcher would be hard-coded to load only the embedded FoldClient assembly, and only after verifying its ECDSA signature. Any other assembly would be rejected before execution.
-- **Memory hygiene goals.** The design goal is to keep the loader's footprint limited to the media renderer: no gameplay hooks, no entity or player-data access, no console/ESP surfaces. These properties would have to be validated by Northwood's review of the actual loader source, not asserted in advance.
+**Proposed whitelisted loader (design commitment, not implemented).**
 
-**Status.** No launcher code exists in this repository today; the current build is a standard BepInEx 6 IL2CPP plugin. We will submit the launcher source for review before any distribution, and we will not describe it as a shipped or "physically closed" product until that review is complete.
+- **Built from scratch, open source.** The proposed loader would be a standalone, hand-written component with no third-party runtime dependencies. Its full source would be published for review.
+- **Single purpose.** It would only host the media renderer: no gameplay hooks, no entity or player-data access, no console or ESP surfaces.
+- **No generic plugin interface.** It would expose no API, directory, manifest, or command-line path for loading arbitrary DLLs. There would be exactly one load path: the embedded FoldClient assembly.
+- **ECDSA-gated.** The embedded FoldClient assembly and every incoming media command would be verified against FoldEdge's ECDSA public key before execution. Unsigned or replayed commands would be rejected.
+- **Source and binary review.** Because the loader would not carry a commercial code-signing certificate, we would ask Northwood's security team to review the source and, if acceptable, allow the specific binary or its hash.
 
-**What this can and cannot do.** ECDSA verification ensures that only media commands signed by FoldEdge are rendered by FoldClient. It does **not**, and cannot, make a modified game client incapable of ESP or other cheats. A custom loader can restrict what *our* loader loads, not what a determined attacker does to their own client. We do not claim "physically impossible".
+**What this can and cannot do.** ECDSA verification ensures that only media commands signed by FoldEdge are rendered by FoldClient. It does **not**, and cannot, make a modified game client incapable of ESP or other cheats. A custom loader can restrict what *our* loader loads, not what a determined attacker does to their own client. We do not claim "physically impossible", and we do not claim that any loader is guaranteed to pass anti-cheat review — that decision belongs to Northwood.
 
 **Review request.** We invite Northwood's security team to review the source in this repository, especially the ECDSA verification path (`FoldClient.IL2CPP/MediaVerifier.cs`) and the media-only renderer (`FoldClient.IL2CPP/FoldOverlay.cs`). We are happy to answer questions or adjust the design before distribution.
 
@@ -359,7 +360,7 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 
 ### 9.1 分发模式
 
-FoldClient 是专为官方白名单审查准备的**纯净媒体组件**，不包含任何玩法逻辑。白名单通过后，它的目标分发形态是**官方认可的独立组件**：玩家无需手动配置 BepInEx，也无需修改任何游戏文件。
+FoldClient 是专为官方白名单审查准备的**纯净媒体组件**，不包含任何玩法逻辑。白名单通过后，它的目标分发形态是**官方认可的独立组件**：玩家无需手动配置 BepInEx，也无需修改任何游戏文件。白名单分发版本计划**不包含 BepInEx**，而是使用从零编写的最小加载器。
 
 > **当前真实状态**：开发版仍需要 BepInEx 6（IL2CPP），尚未获得 Northwood 官方认可。**目前不存在名为 “Fold Launcher” 的定制启动器**；它只是白名单通过后的分发提案。在收到正式许可前，请勿把本插件对外描述为“官方组件”或“封闭沙盒”。
 
