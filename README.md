@@ -40,8 +40,8 @@ Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**�
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │  游戏网络广播 (TMP 文本)
 ┌───────────────────────────────▼──────────────────────────────────────┐
-│                   FoldClient  (客户端插件, BepInEx 5)                │
-│                   Harmony 拦截 TMP_Text.text setter                  │
+│                   FoldClient  (客户端插件, BepInEx 5 Mono / 6 IL2CPP) │
+│                   Harmony 拦截 TMP_Text.text / Broadcast.RpcAddElement│
 │                                                                      │
 │   [FOLD_IMG]url   ──► UnityWebRequestTexture → RawImage 全屏          │
 │   [FOLD_VIDEO]url ──► VideoPlayer(RenderTexture) + AudioSource 原声   │
@@ -62,7 +62,9 @@ Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**�
 | **服务端游戏动作** | `CHANGE_ROLE` / `SPAWN_ITEM` / `CONTROL_DOOR` 直接调用 LabAPI 原生包装器，无需客户端装模组 |
 | **服务端全局音频** | `PLAY_AUDIO` 用 LabAPI `SpeakerToy` 播放非空间音效，WAV 自动重采样到 48 kHz |
 | **真实图片渲染** | 服务端不接触图片：FoldEdge 用 ImageSharp 解码并降维为像素矩阵，插件纯渲染 |
-| **全屏视频** | FoldClient 用 `VideoPlayer` + `RenderTexture` 播放 MP4/WebM，带原声，F9 急停 |
+| **全屏视频** | FoldClient 用 `VideoPlayer` + `RenderTexture` 播放 MP4/WebM，带原声，F9 急停（Mono 与 IL2CPP 双版本） |
+| **客户端音频 / 字幕** | `[FOLD_AUDIO]` 走 `UnityWebRequestMultimedia` 2D 播放，`[FOLD_TEXT]` 用 TMP 在媒体下方渲染字幕 |
+| **媒体指令验签** | FoldEdge 端 HMAC-SHA256 + 时间戳，FoldEngine 透传，FoldClient 拒绝伪造或超过 5 秒的指令 |
 | **合规标签强制注入** | manifest 含 `18+`/`GORE` 时，服务器名自动加前缀，重载后依然生效 |
 | **AES 加密模块** | `.fdll` 支持 `FOLDENC1`（AES-256-CBC）加密，主程序与插件均在内存解密，不落盘 |
 | **零第三方依赖（服务端）** | 插件仅依赖 LabAPI，手写 JSON 解析，不引入 `System.Web.Extensions` 等易崩程序集 |
@@ -86,7 +88,7 @@ dotnet run
 
 ```text
 服务端：<游戏根目录>/SCP Secret Laboratory/LabAPI/plugins/global/FoldEngine.dll
-客户端：<游戏根目录>/BepInEx/plugins/FoldClient.dll
+客户端：<游戏根目录>/BepInEx/plugins/FoldClient.dll（旧版 Mono）或 FoldClient.IL2CPP.dll（Unity 6 IL2CPP）
 ```
 
 > LabAPI 插件目录以 `LabApi-2000.yml` 中的 `plugin_paths` 为准（默认为 `global` 与端口目录）。
@@ -95,9 +97,11 @@ dotnet run
 ### 3.3 游戏内指令
 
 ```text
-fold                         内置测试播放（文本 → 图片 → 清除）
-fold image <url|test|smiley>  直接下发全屏图片（test / smiley 为零网络本地图）
-fold video <url>              直接下发全屏视频（mp4 / webm）
+fold                         内置文本测试播放
+fold image <url|test|smiley>  全屏图片（FoldEdge 签名）
+fold video <url>              全屏视频（mp4 / webm）
+fold audio <url> [volume]     全屏 2D 音频（ogg / mp3）
+fold text <字幕>              底部字幕
 fold module <name>            让 FoldEdge 读取 Modules/<name>.fdll 并播放
 fold tags <18+,GORE>          手动注入合规标签前缀（验证注入逻辑）
 ```
@@ -141,16 +145,18 @@ demo.fdll  (ZIP)
 
 | 动作 | 目标 | 参数 | 说明 |
 | --- | --- | --- | --- |
-| `SHOW_TEXT` | 客户端 | `text`（或 `url`）、`duration` | 文本广播 / 字幕 |
-| `SHOW_IMAGE` | 客户端 | `url`（或 `test` / `smiley`） | 全屏图片 |
-| `PLAY_VIDEO` | 客户端 | `url` | 全屏视频（MP4 / WebM） |
-| `PLAY_AUDIO` | 服务端 | `url`（WAV）、`volume`、`loop` | SpeakerToy 全局非空间音效 |
+| `SHOW_TEXT` | 服务端 | `text`（或 `url`）、`duration` | 普通文本广播 |
+| `SHOW_SUBTITLE` | 客户端 | `text`、`duration` | 媒体下方的 TMP 字幕（`[FOLD_TEXT]`） |
+| `SHOW_IMAGE` | 客户端 | `url`（或 `test` / `smiley`） | 全屏图片（`[FOLD_IMG]`，签名） |
+| `PLAY_VIDEO` | 客户端 | `url` | 全屏视频 MP4 / WebM（`[FOLD_VIDEO]`，签名） |
+| `PLAY_AUDIO` | 客户端 | `url`（OGG / MP3）、`volume` | 2D 音频播放（`[FOLD_AUDIO]`，签名） |
+| `PLAY_AUDIO_SERVER` | 服务端 | `url`（WAV）、`volume`、`loop` | SpeakerToy 全局非空间音效 |
 | `CHANGE_ROLE` | 服务端 | `playerId`、`role` | 强制切换角色，如 `Scp096` |
 | `SPAWN_ITEM` | 服务端 | `itemId`，`playerId` 或 `position` | 发放到背包或在地图坐标生成 |
 | `CONTROL_DOOR` | 服务端 | `doorName`、`state` | `open` / `close` / `lock` / `unlock` / `toggle` |
 | `CLEAR` | 客户端 | 无 | 清除当前覆盖层 |
 
-> `PLAY_AUDIO` 仅支持 WAV（PCM 8/16/24/32 或 float32），内部混为单声道并重采样到 48000 Hz；MP3/OGG 请先转码。`role` / `itemId` 使用游戏枚举名（`PlayerRoles.RoleTypeId` / `InventorySystem.Items.ItemType`），大小写不敏感。
+> 客户端媒体指令由 FoldEdge 用 HMAC-SHA256 签名，格式为 `[FOLD_XXX]<unix秒>|<签名>|<payloadJson>`；FoldEngine 原样透传，FoldClient 验签并拒绝超过 5 秒的指令。`role` / `itemId` 使用游戏枚举名（`PlayerRoles.RoleTypeId` / `InventorySystem.Items.ItemType`），大小写不敏感。
 
 ### 4.2 打包（含加密）
 
@@ -219,10 +225,15 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 │   ├── FoldEdgeClient.cs  # WebSocket 客户端 + 指令处理
 │   ├── FoldCrypto.cs      # AES-256-CBC 解密（与主程序同密钥）
 │   └── MiniJson.cs        # 零依赖 JSON 解析
-├── FoldClient/        # 客户端插件（BepInEx 5 + HarmonyX）
+├── FoldClient/        # 客户端插件（BepInEx 5 + HarmonyX，旧版 Mono 客户端）
 │   ├── FoldPlugin.cs      # 入口
 │   ├── HintPatcher.cs     # TMP 文本拦截（[FOLD_IMG] / [FOLD_VIDEO]）
 │   └── FoldUIRenderer.cs  # 全屏图片 / 视频渲染 + F9 急停
+├── FoldClient.IL2CPP/ # 客户端插件（BepInEx 6 IL2CPP，Unity 6 客户端）
+│   ├── FoldPlugin.cs      # BasePlugin 入口 + ClassInjector
+│   ├── BroadcastPatcher.cs# 拦截 Broadcast.RpcAddElement（不依赖 TMP 劫持）
+│   ├── MediaVerifier.cs   # HMAC-SHA256 + 5 秒时间窗验签
+│   └── FoldOverlay.cs     # 图片 / 视频 / 音频 / 字幕 + F9 急停
 ├── tools/
 │   └── pack-fdll.ps1  # 模块打包（明文 / AES 加密）
 └── docs/
@@ -231,7 +242,21 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 
 ---
 
-## 8. 版权与许可
+## 8. 客户端安全边界与免责声明
+
+**定位**：FoldClient 是纯被动 UI 渲染器。它不读取玩家坐标、实体位置、背包或角色数据，不修改游戏内存与玩法逻辑；只接收服务端下发的字符串（`[FOLD_IMG]` / `[FOLD_VIDEO]` / `[FOLD_AUDIO]` / `[FOLD_TEXT]`），并调用 `VideoPlayer` / `RawImage` / `AudioSource` / `TextMeshPro` 完成展示。
+
+**数据隔离**：雷达、玩家位置显示等能力必须由服务端或 FoldEdge 先生成图片/文字，再以 `[FOLD_IMG]` / `[FOLD_TEXT]` 下发。客户端只负责“像浏览器一样画出来”，不参与数据生成，也不接触实体数据。
+
+**签名机制**：媒体指令使用 HMAC-SHA256 + Unix 时间戳，签名不匹配或超过 5 秒会被拒绝。必须说明：密钥随客户端分发，因此这套机制用于阻止随意伪造、误触发和简单重放，**不是不可破解的强安全边界**，也无法阻止被篡改的客户端读取游戏内存。任何“physically impossible”或“绝对无法用于 ESP”的绝对化表述都不准确，本项目不这样宣称。
+
+**内容责任**：FoldClient 仅提供渲染能力。服务器所有者对其上传、分发和展示的所有内容（包括图片、音频、视频、文字）承担全部法律责任与合规责任。Fold 开发团队不提供、不审核任何内容。
+
+**反作弊**：本项目不修改游戏可执行文件，不绕过任何反作弊检测。客户端模组是否被允许由 Northwood 的政策决定，请在使用前自行确认。
+
+---
+
+## 9. 版权与许可
 
 - **引擎本体**：采用 [PolyForm Noncommercial License 1.0.0](LICENSE) —— 允许个人、服主、非营利组织**非商业**使用与修改；**禁止任何形式的换皮商用**。
 - **`.fdll` 模块**：模块是独立作品，**版权 100% 归模块开发者**。Fold 官方**绝不抽成、绝不分成**，开发者可自由定价、销售或开源自己的模块。

@@ -56,20 +56,30 @@ The file can be a bare array `[ ... ]` or an object `{ "entries": [ ... ] }`; bo
 
 ### Action Types (implemented in 1.0.0)
 
-| Action         | Target | Description                                    | Parameters                                              |
-| -------------- | ------ | ---------------------------------------------- | ------------------------------------------------------- |
-| `SHOW_TEXT`    | Client | Text broadcast / subtitle line.                | `text` (or `url`), `duration` (seconds, default 1.5)     |
-| `SHOW_IMAGE`   | Client | Full-screen image overlay.                     | `url` (CDN link, or `test` / `smiley` local images)      |
-| `PLAY_VIDEO`   | Client | Full-screen video playback (MP4 / WebM).       | `url`                                                   |
-| `PLAY_AUDIO`   | Server | Global non-spatial sound via LabAPI SpeakerToy. | `url` (WAV: PCM 8/16/24/32 or float32), `volume`, `loop` |
-| `CHANGE_ROLE`  | Server | Force a player to switch roles.                | `playerId` (SteamID64, `@steam` optional), `role`       |
-| `SPAWN_ITEM`   | Server | Give an item to a player or spawn it in world. | `itemId`, `playerId` **or** `position` (`"x,y,z"`)      |
-| `CONTROL_DOOR` | Server | Open / close / lock / unlock a map door.       | `doorName` (e.g. `HczArmory`), `state`                   |
-| `CLEAR`        | Client | Clear the current overlay.                     | none                                                    |
+| Action               | Target | Description                                    | Parameters                                              |
+| -------------------- | ------ | ---------------------------------------------- | ------------------------------------------------------- |
+| `SHOW_TEXT`          | Server | Plain broadcast text.                          | `text` (or `url`), `duration`                            |
+| `SHOW_SUBTITLE`      | Client | TMP subtitle below the media overlay.          | `text`, `duration`                                       |
+| `SHOW_IMAGE`         | Client | Full-screen image overlay.                     | `url` (CDN link, or `test` / `smiley` local images)      |
+| `PLAY_VIDEO`         | Client | Full-screen video playback (MP4 / WebM).       | `url`                                                   |
+| `PLAY_AUDIO`         | Client | 2D audio playback (OGG / MP3).                 | `url`, `volume`                                          |
+| `PLAY_AUDIO_SERVER`  | Server | Global non-spatial sound via LabAPI SpeakerToy. | `url` (WAV: PCM 8/16/24/32 or float32), `volume`, `loop` |
+| `CHANGE_ROLE`        | Server | Force a player to switch roles.                | `playerId` (SteamID64, `@steam` optional), `role`       |
+| `SPAWN_ITEM`         | Server | Give an item to a player or spawn it in world. | `itemId`, `playerId` **or** `position` (`"x,y,z"`)      |
+| `CONTROL_DOOR`       | Server | Open / close / lock / unlock a map door.       | `doorName` (e.g. `HczArmory`), `state`                   |
+| `CLEAR`              | Client | Clear the current overlay.                     | none                                                    |
 
 `CONTROL_DOOR` states: `open`, `close`, `lock`, `unlock`, `toggle` (default).
 
-**Audio note:** `PLAY_AUDIO` decodes WAV natively and resamples to `AudioTransmitter.SampleRate` (48000 Hz, mono). Other codecs (MP3/OGG) must be transcoded to WAV before packaging.
+**Signed media markers:** client-bound media actions are signed by FoldEdge with HMAC-SHA256 and delivered as:
+
+```text
+[FOLD_VIDEO]<unix-seconds>|<hex-signature>|<payload-json>
+```
+
+The signature covers `kind + "\n" + timestamp + "\n" + payload-json` (`kind` = `video` / `image` / `audio` / `text`). FoldEngine forwards the marker unchanged; FoldClient rejects signatures that do not match or timestamps older/newer than 5 seconds.
+
+**Audio note:** `PLAY_AUDIO` (client) supports OGG/MP3 via `UnityWebRequestMultimedia`. `PLAY_AUDIO_SERVER` decodes WAV natively and resamples to 48000 Hz mono. Other server-side codecs must be transcoded to WAV first.
 
 **Role / item ids:** `role` and `itemId` are parsed with `Enum.TryParse` against `PlayerRoles.RoleTypeId` and `InventorySystem.Items.ItemType` (case-insensitive), e.g. `Scp096`, `KeycardO5`.
 

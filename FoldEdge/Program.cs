@@ -107,6 +107,9 @@ async Task<string?> SendPlayCommandAsync(string moduleName)
     var (manifest, timeline, encrypted, error) = LoadModule(moduleName);
     if (error != null) return error;
 
+    // 媒体条目在离开 FoldEdge 前完成签名；FoldEngine 只负责透传
+    timeline = MediaSigner.SignTimeline(timeline!);
+
     string payload;
     if (encrypted)
     {
@@ -169,6 +172,56 @@ async Task HandleClientMessage(string msg)
             !string.IsNullOrEmpty(urlEl.GetString()))
         {
             await PushImageAsync(urlEl.GetString()!, 8, 6, 8f);
+            return;
+        }
+
+        // 游戏内 fold video/image/audio/text 指令：由主程序签名后回推 media 指令
+        if (type == "media-request" &&
+            doc.RootElement.TryGetProperty("kind", out var kindEl))
+        {
+            var kind = kindEl.GetString();
+            string url = doc.RootElement.TryGetProperty("url", out var mediaUrlEl) ? mediaUrlEl.GetString() ?? "" : "";
+            string text = doc.RootElement.TryGetProperty("text", out var textEl) ? textEl.GetString() ?? "" : "";
+            double volume = doc.RootElement.TryGetProperty("volume", out var volumeEl) &&
+                            volumeEl.TryGetDouble(out var parsedVolume)
+                ? parsedVolume
+                : 1.0;
+            double duration = doc.RootElement.TryGetProperty("duration", out var durationEl) &&
+                              durationEl.TryGetDouble(out var parsedDuration)
+                ? parsedDuration
+                : 5.0;
+
+            string prefix;
+            string payloadJson;
+            switch (kind)
+            {
+                case "video":
+                    prefix = "[FOLD_VIDEO]";
+                    payloadJson = JsonSerializer.Serialize(new { url }, jsonOpts);
+                    break;
+                case "image":
+                    prefix = "[FOLD_IMG]";
+                    payloadJson = JsonSerializer.Serialize(new { url }, jsonOpts);
+                    break;
+                case "audio":
+                    prefix = "[FOLD_AUDIO]";
+                    payloadJson = JsonSerializer.Serialize(new { url, volume }, jsonOpts);
+                    break;
+                case "text":
+                    prefix = "[FOLD_TEXT]";
+                    payloadJson = JsonSerializer.Serialize(new { text, duration }, jsonOpts);
+                    break;
+                default:
+                    return;
+            }
+
+            var marker = MediaSigner.BuildMarker(prefix, kind!, payloadJson);
+            await BroadcastAsync(JsonSerializer.Serialize(new
+            {
+                type = "command",
+                command = "media",
+                marker
+            }, jsonOpts));
             return;
         }
 

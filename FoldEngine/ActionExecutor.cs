@@ -36,7 +36,7 @@ namespace FoldEngine
         {
             switch (item.Action.ToLowerInvariant())
             {
-                case "play_audio":
+                case "play_audio_server":
                     PlayAudio(module, item);
                     break;
                 case "change_role":

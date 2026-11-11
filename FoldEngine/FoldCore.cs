@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using CommandSystem;
 using LabApi.Features.Console;
@@ -107,11 +108,13 @@ namespace FoldEngine
     /// <summary>
     /// fold 控制台指令。
     /// 用法：
-    ///   fold                    内置测试播放（文本 → 图片 → 清除）
-    ///   fold image &lt;url&gt;       直接下发全屏图片（支持 test / smiley 本地图）
-    ///   fold video &lt;url&gt;       直接下发全屏视频（mp4 / webm）
+    ///   fold                    内置文本测试播放
+    ///   fold image &lt;url&gt;       全屏图片（客户端渲染，FoldEdge 签名）
+    ///   fold video &lt;url&gt;       全屏视频（mp4 / webm）
+    ///   fold audio &lt;url&gt; [vol] 全屏 2D 音频（ogg / mp3，音量 0-1）
+    ///   fold text &lt;text&gt;       底部字幕
     ///   fold module &lt;name&gt;     让 FoldEdge 读取 Modules/&lt;name&gt;.fdll 并播放
-    ///   fold tags &lt;18+,GORE&gt;   手动注入合规标签前缀（便于验证注入逻辑）
+    ///   fold tags &lt;18+,GORE&gt;   手动注入合规标签前缀（验证注入逻辑）
     /// </summary>
     public class FoldCommand : ICommand
     {
@@ -137,8 +140,7 @@ namespace FoldEngine
                     _ = ui.Play("demo", new List<PlaylistItem>
                     {
                         new PlaylistItem { Time = 0f, Action = "text",  Url = "Fold Engine 测试播放启动" },
-                        new PlaylistItem { Time = 2f, Action = "image", Url = "smiley" },
-                        new PlaylistItem { Time = 5f, Action = "clear", Url = string.Empty }
+                        new PlaylistItem { Time = 2f, Action = "clear", Url = string.Empty }
                     });
                     response = "[Fold] 测试播放已开始: demo";
                     return true;
@@ -147,11 +149,11 @@ namespace FoldEngine
                     var imageUrl = GetArg(arguments, 1);
                     if (string.IsNullOrEmpty(imageUrl))
                     {
-                        response = "用法: fold image <url|test|smiley>";
+                        response = "用法: fold image <url>";
                         return false;
                     }
-                    ui.PlayImage(imageUrl);
-                    response = $"[Fold] 已下发图片: {imageUrl}";
+                    FoldEdgeClient.Instance.RequestMedia("image", url: imageUrl);
+                    response = $"[Fold] 已请求 FoldEdge 签名并下发图片: {imageUrl}";
                     return true;
 
                 case "video":
@@ -161,8 +163,36 @@ namespace FoldEngine
                         response = "用法: fold video <url>";
                         return false;
                     }
-                    ui.PlayVideo(videoUrl);
-                    response = $"[Fold] 已下发视频: {videoUrl}";
+                    FoldEdgeClient.Instance.RequestMedia("video", url: videoUrl);
+                    response = $"[Fold] 已请求 FoldEdge 签名并下发视频: {videoUrl}";
+                    return true;
+
+                case "audio":
+                    var audioUrl = GetArg(arguments, 1);
+                    if (string.IsNullOrEmpty(audioUrl))
+                    {
+                        response = "用法: fold audio <url> [volume 0-1]";
+                        return false;
+                    }
+                    float volume = 1f;
+                    var volumeText = GetArg(arguments, 2);
+                    if (!string.IsNullOrEmpty(volumeText))
+                    {
+                        float.TryParse(volumeText, NumberStyles.Float, CultureInfo.InvariantCulture, out volume);
+                    }
+                    FoldEdgeClient.Instance.RequestMedia("audio", url: audioUrl, volume: volume);
+                    response = $"[Fold] 已请求 FoldEdge 签名并下发音频: {audioUrl}";
+                    return true;
+
+                case "text":
+                    var subtitle = JoinArgs(arguments, 1);
+                    if (string.IsNullOrEmpty(subtitle))
+                    {
+                        response = "用法: fold text <字幕内容>";
+                        return false;
+                    }
+                    FoldEdgeClient.Instance.RequestMedia("text", text: subtitle);
+                    response = "[Fold] 已请求 FoldEdge 签名并下发字幕";
                     return true;
 
                 case "module":
@@ -193,7 +223,7 @@ namespace FoldEngine
                     return true;
 
                 default:
-                    response = "用法: fold [demo|image <url>|video <url>|module <name>|tags <a,b>]";
+                    response = "用法: fold [demo|image <url>|video <url>|audio <url> [vol]|text <字幕>|module <name>|tags <a,b>]";
                     return false;
             }
         }
@@ -202,6 +232,17 @@ namespace FoldEngine
         {
             if (arguments.Array == null || index < 0 || index >= arguments.Count) return null;
             return arguments.Array[arguments.Offset + index];
+        }
+
+        private static string JoinArgs(ArraySegment<string> arguments, int start)
+        {
+            if (arguments.Array == null || start >= arguments.Count) return null;
+            var parts = new List<string>();
+            for (int i = start; i < arguments.Count; i++)
+            {
+                parts.Add(arguments.Array[arguments.Offset + i]);
+            }
+            return string.Join(" ", parts);
         }
     }
 }

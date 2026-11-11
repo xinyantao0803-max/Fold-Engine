@@ -13,6 +13,9 @@ namespace FoldEngine
         public string Action; // 动作：SHOW_TEXT / SHOW_IMAGE / PLAY_VIDEO / PLAY_AUDIO / CHANGE_ROLE / SPAWN_ITEM / CONTROL_DOOR / CLEAR
         public string Url;    // CDN 地址（文本动作时作为文本内容）
         public string Raw;    // 原始 JSON 片段，供动作执行器读取 playerId / role / itemId 等扩展参数
+        public long Ts;       // FoldEdge 签名时间戳（Unix 秒）
+        public string Sig;    // FoldEdge HMAC-SHA256 签名（插件不生成、不校验，只透传）
+        public string Payload; // 已签名的媒体负载 JSON（插件原样拼进广播）
     }
 
     /// <summary>
@@ -66,7 +69,16 @@ namespace FoldEngine
                 if (url.Length == 0) url = MiniJson.GetStringValue(chunk, "text") ?? string.Empty;
                 var time = MiniJson.GetNumberValue(chunk, "time", 0f);
 
-                items.Add(new PlaylistItem { Time = time, Action = action, Url = url, Raw = chunk });
+                items.Add(new PlaylistItem
+                {
+                    Time = time,
+                    Action = action,
+                    Url = url,
+                    Raw = chunk,
+                    Ts = (long)MiniJson.GetNumberValue(chunk, "ts", 0f),
+                    Sig = MiniJson.GetStringValue(chunk, "sig") ?? string.Empty,
+                    Payload = MiniJson.GetStringValue(chunk, "payload") ?? string.Empty
+                });
             }
             items.Sort((a, b) => a.Time.CompareTo(b.Time));
             return items;
@@ -297,7 +309,7 @@ namespace FoldEngine
             Broadcast($"[Fold] 模块 {module} 播放结束");
         }
 
-        /// <summary>执行单个动作：媒体动作走广播，游戏动作交给 ActionExecutor（LabAPI 原生 API）。</summary>
+        /// <summary>执行单个动作：媒体动作走客户端渲染，游戏动作交给 ActionExecutor。</summary>
         private void ExecuteAction(string module, PlaylistItem item)
         {
             switch (item.Action.ToLowerInvariant())
@@ -307,12 +319,21 @@ namespace FoldEngine
                     break;
                 case "show_image":
                 case "image":
-                    PlayImage(item.Url);
+                    BroadcastMedia("[FOLD_IMG]", item, "image");
+                    ShowImage(item.Url); // 未安装客户端时的像素矩阵回退
                     break;
                 case "play_video":
-                    PlayVideo(item.Url);
+                    BroadcastMedia("[FOLD_VIDEO]", item, "video");
                     break;
                 case "play_audio":
+                    // 客户端 2D 音频（ogg/mp3）；服务端 SpeakerToy 走 play_audio_server
+                    BroadcastMedia("[FOLD_AUDIO]", item, "audio");
+                    break;
+                case "show_subtitle":
+                case "subtitle":
+                    BroadcastMedia("[FOLD_TEXT]", item, "text");
+                    break;
+                case "play_audio_server":
                 case "change_role":
                 case "spawn_item":
                 case "control_door":
@@ -334,22 +355,40 @@ namespace FoldEngine
         }
 
         /// <summary>
-        /// 向客户端广播 [FOLD_IMG] 标记：装有 FoldClient 的玩家拦截后全屏渲染真实图片，
-        /// 未装模组的玩家看到的是标记文本（MVP 取舍）。
-        /// 插件端不下载图片，只通过 FoldEdge 把 url 转成颜色矩阵。
+        /// 媒体指令：timeline 中已带 FoldEdge 签名时原样拼接透传；
+        /// 没有签名（例如 fold 指令现场触发）则请求 FoldEdge 现场签名。
         /// </summary>
-        public void PlayImage(string url)
+        private void BroadcastMedia(string prefix, PlaylistItem item, string kind)
         {
-            if (string.IsNullOrEmpty(url)) return;
-            Broadcast("[FOLD_IMG]" + url);
-            ShowImage(url);
+            if (!string.IsNullOrEmpty(item.Sig) && !string.IsNullOrEmpty(item.Payload))
+            {
+                Broadcast(prefix + item.Ts + "|" + item.Sig + "|" + item.Payload, 8f);
+                return;
+            }
+
+            switch (kind)
+            {
+                case "image":
+                    FoldEdgeClient.Instance.RequestMedia("image", url: item.Url);
+                    break;
+                case "video":
+                    FoldEdgeClient.Instance.RequestMedia("video", url: item.Url);
+                    break;
+                case "audio":
+                    FoldEdgeClient.Instance.RequestMedia("audio", url: item.Url,
+                        volume: MiniJson.GetNumberValue(item.Raw, "volume", 1f));
+                    break;
+                default:
+                    FoldEdgeClient.Instance.RequestMedia("text", text: item.Url);
+                    break;
+            }
         }
 
-        /// <summary>向客户端广播 [FOLD_VIDEO] 标记：FoldClient 拦截后全屏播放 WebM/MP4。</summary>
-        public void PlayVideo(string url)
+        /// <summary>原样广播 FoldEdge 签好的媒体标记（服务端绝不修改签名）。</summary>
+        public void BroadcastMarker(string marker)
         {
-            if (string.IsNullOrEmpty(url)) return;
-            Broadcast("[FOLD_VIDEO]" + url, 8f);
+            if (string.IsNullOrEmpty(marker)) return;
+            Broadcast(marker, 8f);
         }
 
         /// <summary>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -90,6 +91,30 @@ namespace FoldEngine
         {
             var json = "{\"type\":\"trigger\",\"module\":\"" + moduleName.Replace("\"", "\\\"") + "\"}";
             _ = SendAsync(json);
+        }
+
+        /// <summary>请求 FoldEdge 现场签名一条媒体指令（插件不持有密钥）。</summary>
+        public void RequestMedia(string kind, string url = null, string text = null,
+            float volume = 1f, float duration = 5f)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"type\":\"media-request\",\"kind\":\"").Append(kind).Append('"');
+            if (!string.IsNullOrEmpty(url))
+                sb.Append(",\"url\":\"").Append(Escape(url)).Append('"');
+            if (!string.IsNullOrEmpty(text))
+                sb.Append(",\"text\":\"").Append(Escape(text)).Append('"');
+            sb.Append(",\"volume\":").Append(volume.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"duration\":").Append(duration.ToString(CultureInfo.InvariantCulture));
+            sb.Append('}');
+            _ = SendAsync(sb.ToString());
+        }
+
+        private static string Escape(string value)
+        {
+            return value.Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\n", "\\n")
+                .Replace("\r", "\\r");
         }
 
         private async Task SendAsync(string json)
@@ -185,11 +210,23 @@ namespace FoldEngine
             }
         }
 
-        /// <summary>处理主程序指令：play → 注入合规标签 + 播放时间轴。</summary>
+        /// <summary>处理主程序指令：media 原样广播；play 注入合规标签并播放时间轴。</summary>
         private bool HandleCommand(string json)
         {
-            if (!string.Equals(MiniJson.GetStringValue(json, "command"), "play",
-                    StringComparison.OrdinalIgnoreCase))
+            var command = MiniJson.GetStringValue(json, "command");
+
+            // 媒体标记由 FoldEdge 签名，插件只做原样透传
+            if (string.Equals(command, "media", StringComparison.OrdinalIgnoreCase))
+            {
+                var marker = MiniJson.GetStringValue(json, "marker");
+                if (!string.IsNullOrEmpty(marker))
+                {
+                    FoldCore.UI?.BroadcastMarker(marker);
+                }
+                return true;
+            }
+
+            if (!string.Equals(command, "play", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
