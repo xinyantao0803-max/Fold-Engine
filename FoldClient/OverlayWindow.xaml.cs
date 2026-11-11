@@ -44,6 +44,7 @@ namespace FoldClient
         private DateTime _lastFrameUtc;
         private DispatcherTimer _imageTimer;
         private IntPtr _hwnd;
+        private bool _firstFrameLogged;
 
         public OverlayWindow()
         {
@@ -105,13 +106,14 @@ namespace FoldClient
                 var decoder = new MfVideoDecoder();
                 decoder.Start(url);
                 _decoder = decoder;
+                _firstFrameLogged = false;
 
                 Surface.Stretch = FvpConfig.KeepAspectRatio ? Stretch.Uniform : Stretch.Fill;
                 Surface.Source = null;
                 Root.Background = Brushes.Black;
                 _lastFrameUtc = DateTime.UtcNow;
 
-                AppLog.Write("video decoder started, hardware=" + decoder.IsHardwareAccelerated);
+                AppLog.Write("video decoder starting");
             }
             catch (Exception ex)
             {
@@ -203,6 +205,13 @@ namespace FoldClient
                     _bitmap.PixelHeight != height)
                 {
                     _bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+                }
+
+                if (!_firstFrameLogged)
+                {
+                    _firstFrameLogged = true;
+                    AppLog.Write("first frame " + width + "x" + height +
+                                 ", hardware=" + decoder.IsHardwareAccelerated);
                 }
 
                 _bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, width * 4, 0);

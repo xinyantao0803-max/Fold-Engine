@@ -1,3 +1,5 @@
+**Commercial License Granted: While this project uses PFN 1.0 (Noncommercial), we officially and irrevocably grant Northwood Studios a free commercial license to integrate this client rendering code into the official SCP:SL source code.**
+
 # SCP:SL Fold Mod
 
 **数据驱动的 SCP:SL 媒体与事件引擎。**
@@ -8,6 +10,13 @@ Fold Mod 由三个独立模块组成：**FH（FoldEdge）**、**FE（FoldEngine�
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](#)
 [![Client](https://img.shields.io/badge/client-WPF%20%2B%20Media%20Foundation-4b8bbe)](#)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](#license)
+
+---
+
+## FoldStudio (FS)
+
+**FoldStudio (FS) 是完全独立、基于 MIT 协议开源的多媒体创作工具，不属于本仓库，也不受 PFN 1.0 约束。**  
+它支持导出通用格式（MP4 / PNG 等）以及 `.fdll` 模块；Fold Mod 只把 `.fdll` 当作数据读取。
 
 ---
 
@@ -108,6 +117,51 @@ my-module.fdll
 | `PLAY_AUDIO` | 音频（预留） |
 | `SHOW_SUBTITLE` | 原生字幕/广播 |
 | `CONTROL` | 停止、跳转等控制 |
+
+### 3.1 使用 FoldPacker 打包
+
+`tools/FoldPacker` 是一个纯 C# 命令行打包工具：输入一个目录，输出标准 `.fdll`。
+
+目录示例：
+
+```
+my-module/
+├─ manifest.json
+├─ timeline.json
+└─ media/
+   └─ intro.mp4
+```
+
+加密并签名：
+
+```powershell
+dotnet run --project .\tools\FoldPacker\FoldPacker.csproj -- `
+  .\my-module `
+  -o .\FoldEdge\Modules\my-module.fdll `
+  --encrypt `
+  --sign .\FoldEdge\keys\fold-ecdsa-private.pem
+```
+
+也可以直接使用发布好的可执行文件：
+
+```powershell
+.\tools\FoldPacker\dist\FoldPacker.exe .\my-module `
+  -o .\my-module.fdll `
+  --encrypt `
+  --sign .\FoldEdge\keys\fold-ecdsa-private.pem
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `-o, --output` | 输出路径，默认当前目录 `<目录名>.fdll` |
+| `--encrypt` | 生成 `FOLDENC1` 容器（AES-256-CBC / PKCS7），与 FH 的读取格式完全一致 |
+| `--sign` | 对最终 `.fdll` 字节生成 `<输出>.sig`（Base64 DER，ECDSA P-256 + SHA-256） |
+| `-h, --help` | 显示帮助 |
+
+打包完成后终端会打印模块名、版本、作者、标签、条目数、加密/签名状态、文件大小和 SHA-256。
+
+> `--encrypt` 使用 Fold 现有的预设密钥，目的是与 FH 的 `FOLDENC1` 容器兼容，**不是**面向攻击者的强保密方案；密钥随程序分发。  
+> `.sig` 是对最终文件（加密后的字节）的分离签名，可用 FH 的 `keys/fold-ecdsa-public.pem` 验证。
 
 完整字段、时间轴格式、标签与优先级规则见 **[docs/fdll-spec.md](docs/fdll-spec.md)**。
 
@@ -213,6 +267,7 @@ fold image http://127.0.0.1:9000/Assets/your-image.png
 dotnet build .\FoldEdge\FoldEdge.csproj   -c Release
 dotnet build .\FoldEngine\FoldEngine.csproj -c Release
 dotnet build .\FoldClient\FoldClient.csproj -c Release
+dotnet build .\tools\FoldPacker\FoldPacker.csproj -c Release
 ```
 
 客户端解码器独立测试：
@@ -235,7 +290,8 @@ docs/
 tests/
 └─ FoldClient.Test/     解码器独立测试
 tools/
-└─ pack-fdll.ps1        .fdll 打包脚本
+├─ pack-fdll.ps1        旧版 PowerShell 打包脚本
+└─ FoldPacker/          C# CLI 打包工具（加密 / 签名）
 README.md
 LICENSE                 PolyForm Noncommercial 1.0.0（PFN 1.0）
 ```
@@ -269,3 +325,5 @@ LICENSE                 PolyForm Noncommercial 1.0.0（PFN 1.0）
 https://polyformproject.org/licenses/noncommercial/1.0.0
 
 完整文本见 [LICENSE](LICENSE)。
+
+> **例外**：Northwood Studios 获得本 README 顶部所述的免费商业授权，可将本项目的客户端渲染代码整合进官方 SCP:SL 源码；该授权不可撤销。

@@ -75,6 +75,14 @@ namespace FoldEdge
             return Base64UrlEncode(signature);
         }
 
+        /// <summary>校验 .fdll 的分离签名（Base64 DER，ECDSA P-256 + SHA-256）。</summary>
+        public static bool VerifyDetached(byte[] data, byte[] signature)
+        {
+            return SigningKey.VerifyData(
+                data, signature, HashAlgorithmName.SHA256,
+                DSASignatureFormat.Rfc3279DerSequence);
+        }
+
         /// <summary>生成 [FOLD_XXX]&lt;tsMs&gt;|&lt;nonce&gt;|&lt;sig&gt;|&lt;payloadJson&gt; 标记。</summary>
         public static string BuildMarker(string prefix, string kind, string payloadJson)
         {

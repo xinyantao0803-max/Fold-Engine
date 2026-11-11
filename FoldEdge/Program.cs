@@ -66,6 +66,24 @@ var clients = new ConcurrentDictionary<Guid, WebSocket>();
 static string GetString(JsonElement root, string name) =>
     root.TryGetProperty(name, out var value) ? value.GetString() ?? string.Empty : string.Empty;
 
+static int CountTimelineActions(string json)
+{
+    try
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind == JsonValueKind.Array)
+            return document.RootElement.GetArrayLength();
+        if (document.RootElement.TryGetProperty("entries", out var entries) &&
+            entries.ValueKind == JsonValueKind.Array)
+            return entries.GetArrayLength();
+    }
+    catch (JsonException)
+    {
+    }
+
+    return 0;
+}
+
 // 计算仍然存活的客户端，并顺手清理已断开/半关闭的连接
 int CountAliveClients()
 {
@@ -134,6 +152,28 @@ string? ReadEntry(ZipArchive zip, string entryName)
     try
     {
         var raw = File.ReadAllBytes(file);
+
+        // 分离签名：<module>.fdll.sig = Base64(DER ECDSA P-256 / SHA-256)
+        var signaturePath = file + ".sig";
+        if (File.Exists(signaturePath))
+        {
+            try
+            {
+                var signature = Convert.FromBase64String(File.ReadAllText(signaturePath).Trim());
+                if (!MediaSigner.VerifyDetached(raw, signature))
+                    return (null, null, false, "module signature invalid");
+                Console.WriteLine($"[FoldEdge] module signature verified: {moduleName}");
+            }
+            catch (FormatException)
+            {
+                return (null, null, false, "module .sig is not valid Base64");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"[FoldEdge] warning: {moduleName}.fdll has no detached signature");
+        }
+
         // 文件头不是 ZIP（"PK"）时按 FOLDENC1 加密容器处理，仅在内存中解密
         bool encrypted = raw.Length >= FoldCrypto.Magic.Length &&
                          Encoding.ASCII.GetString(raw, 0, FoldCrypto.Magic.Length) == FoldCrypto.Magic;
@@ -144,6 +184,25 @@ string? ReadEntry(ZipArchive zip, string entryName)
         var timeline = ReadEntry(zip, "timeline.json");
         if (string.IsNullOrWhiteSpace(manifest)) return (null, null, encrypted, "manifest.json missing");
         if (string.IsNullOrWhiteSpace(timeline)) return (null, null, encrypted, "timeline.json missing");
+
+        try
+        {
+            using var _ = JsonDocument.Parse(manifest);
+        }
+        catch (JsonException)
+        {
+            return (null, null, encrypted, "manifest.json is not valid JSON");
+        }
+
+        try
+        {
+            using var _ = JsonDocument.Parse(timeline);
+        }
+        catch (JsonException)
+        {
+            return (null, null, encrypted, "timeline.json is not valid JSON");
+        }
+
         return (manifest, timeline, encrypted, null);
     }
     catch (CryptographicException)
@@ -165,6 +224,7 @@ async Task<string?> SendPlayCommandAsync(string moduleName)
 
     // 媒体条目在离开 FoldEdge 前完成签名；FoldEngine 只负责透传
     timeline = MediaSigner.SignTimeline(timeline!);
+    Console.WriteLine($"[FoldEdge] module {moduleName}: {CountTimelineActions(timeline)} timeline action(s) signed");
 
     string payload;
     if (encrypted)
