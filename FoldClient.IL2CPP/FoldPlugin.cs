@@ -1,5 +1,6 @@
-// This plugin is strictly a passive UI renderer. It does not access game entity
-// coordinates or gameplay data. All media and text are explicitly provided by the server.
+// Strict Security Boundary: This client plugin ONLY reports media playback states
+// (current time, status). It strictly has ZERO access to game memory, player
+// positions, entity states, or gameplay logic. It cannot be abused for ESP or Radar hacks.
 using BepInEx;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;

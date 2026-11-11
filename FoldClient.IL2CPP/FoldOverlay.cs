@@ -1,5 +1,6 @@
-// This plugin is strictly a passive UI renderer. It does not access game entity
-// coordinates or gameplay data. All media and text are explicitly provided by the server.
+// Strict Security Boundary: This client plugin ONLY reports media playback states
+// (current time, status). It strictly has ZERO access to game memory, player
+// positions, entity states, or gameplay logic. It cannot be abused for ESP or Radar hacks.
 using System;
 using System.Collections.Concurrent;
 using System.Net.Http;
@@ -48,6 +49,11 @@ namespace FoldClient.IL2CPP
         private float _audioVolume = 1f;
 
         private bool _legacyInputBroken;
+
+        private string _activeMediaType = string.Empty;
+        private string _activeMediaUrl = string.Empty;
+        private float _activeMediaStart;
+        private float _telemetryTick;
 
         public FoldOverlay(IntPtr ptr) : base(ptr) { }
 
@@ -103,7 +109,7 @@ namespace FoldClient.IL2CPP
                 try
                 {
                     var bytes = await Http.GetByteArrayAsync(url).ConfigureAwait(false);
-                    _mainThread.Enqueue(() => ApplyImage(bytes));
+                    _mainThread.Enqueue(() => ApplyImage(bytes, url));
                 }
                 catch (Exception ex)
                 {
@@ -112,7 +118,7 @@ namespace FoldClient.IL2CPP
             });
         }
 
-        private void ApplyImage(byte[] bytes)
+        private void ApplyImage(byte[] bytes, string url)
         {
             if (bytes == null || bytes.Length == 0) return;
 
@@ -131,6 +137,7 @@ namespace FoldClient.IL2CPP
             _image.color = _imageColor;
             _showing = true;
             _hideAt = Time.time + 8f;
+            StartMediaTelemetry("image", url);
         }
 
         // ---------------- 视频 ----------------
@@ -138,7 +145,7 @@ namespace FoldClient.IL2CPP
         public void PlayVideo(string url)
         {
             if (string.IsNullOrEmpty(url)) return;
-            StopVideo();
+            StopVideoInternal();
 
             _videoHost = new GameObject("FoldVideoHost");
             _videoHost.transform.SetParent(transform, false);
@@ -178,10 +185,11 @@ namespace FoldClient.IL2CPP
             image.texture = _videoTarget;
             _videoPlayer.Play();
 
+            StartMediaTelemetry("video", url);
             FoldPlugin.LogSource?.LogInfo($"[FoldClient] 开始播放视频: {url}");
         }
 
-        public void StopVideo()
+        private void StopVideoInternal()
         {
             if (_videoPlayer != null)
             {
@@ -217,7 +225,7 @@ namespace FoldClient.IL2CPP
         public void PlayAudio(string url, float volume)
         {
             if (string.IsNullOrEmpty(url)) return;
-            StopAudio();
+            StopAudioInternal();
 
             _audioHost = new GameObject("FoldAudio");
             _audioHost.transform.SetParent(transform, false);
@@ -232,10 +240,11 @@ namespace FoldClient.IL2CPP
 
             _audioRequest = UnityWebRequestMultimedia.GetAudioClip(url, audioType);
             _audioRequest.SendWebRequest();
+            StartMediaTelemetry("audio", url);
             FoldPlugin.LogSource?.LogInfo($"[FoldClient] 开始下载音频: {url}");
         }
 
-        public void StopAudio()
+        private void StopAudioInternal()
         {
             if (_audioRequest != null)
             {
@@ -299,11 +308,82 @@ namespace FoldClient.IL2CPP
 
         // ---------------- 生命周期 ----------------
 
+        public void StopAllMedia()
+        {
+            StopVideoInternal();
+            StopAudioInternal();
+            _subtitleVisible = false;
+            if (_subtitle != null) _subtitle.text = string.Empty;
+            StopMediaTelemetry();
+        }
+
+        public void JumpTo(float seconds)
+        {
+            if (_videoPlayer == null) return;
+            float target = Math.Max(0f, seconds);
+            _videoPlayer.time = target;
+            _activeMediaStart = Time.time - target;
+            _telemetryTick = Time.time;
+        }
+
+        private void StartMediaTelemetry(string type, string url)
+        {
+            _activeMediaType = type;
+            _activeMediaUrl = url;
+            _activeMediaStart = Time.time;
+            _telemetryTick = Time.time;
+            TelemetryReporter.Report("playing", type, url, 0f);
+        }
+
+        private void StopMediaTelemetry()
+        {
+            if (string.IsNullOrEmpty(_activeMediaType)) return;
+            TelemetryReporter.Report("stopped", _activeMediaType, _activeMediaUrl, 0f);
+            _activeMediaType = string.Empty;
+            _activeMediaUrl = string.Empty;
+        }
+
+        private void UpdateTelemetry()
+        {
+            if (string.IsNullOrEmpty(_activeMediaType)) return;
+
+            bool playing;
+            float current;
+            switch (_activeMediaType)
+            {
+                case "video":
+                    playing = _videoPlayer != null && _videoPlayer.isPlaying;
+                    current = _videoPlayer != null ? (float)_videoPlayer.time : 0f;
+                    break;
+                case "audio":
+                    playing = _audioSource != null && _audioSource.isPlaying;
+                    current = _audioSource != null ? _audioSource.time : 0f;
+                    break;
+                default:
+                    playing = _showing;
+                    current = Time.time - _activeMediaStart;
+                    break;
+            }
+
+            if (!playing)
+            {
+                StopMediaTelemetry();
+                return;
+            }
+
+            if (Time.time - _telemetryTick >= 1f)
+            {
+                _telemetryTick = Time.time;
+                TelemetryReporter.Report("playing", _activeMediaType, _activeMediaUrl, current);
+            }
+        }
+
         private void Update()
         {
             while (_mainThread.TryDequeue(out var action)) action();
 
             PollAudio();
+            UpdateTelemetry();
 
             if (_subtitleVisible && Time.time > _subtitleHideAt)
             {
@@ -333,13 +413,18 @@ namespace FoldClient.IL2CPP
                 }
             }
 
-            if (WasStopPressed()) StopVideo();
+            if (_videoPlayer != null && _videoPlayer.isPrepared && !_videoPlayer.isPlaying &&
+                _videoPlayer.time > 0.1)
+            {
+                StopAllMedia();
+            }
+
+            if (WasStopPressed()) StopAllMedia();
         }
 
         private void OnDestroy()
         {
-            StopAudio();
-            StopVideo();
+            StopAllMedia();
             if (_texture != null)
             {
                 Destroy(_texture);

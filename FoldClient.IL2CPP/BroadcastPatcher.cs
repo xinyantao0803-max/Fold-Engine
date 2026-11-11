@@ -1,5 +1,6 @@
 // This plugin is strictly a passive UI renderer. It does not access game entity
 // coordinates or gameplay data. All media and text are explicitly provided by the server.
+using System;
 using System.Text.Json;
 using HarmonyLib;
 
@@ -17,16 +18,54 @@ namespace FoldClient.IL2CPP
         private const string ImageMarker = "[FOLD_IMG]";
         private const string AudioMarker = "[FOLD_AUDIO]";
         private const string TextMarker = "[FOLD_TEXT]";
+        private const string CommandMarker = "[FOLD_CMD]";
 
         [HarmonyPrefix]
         public static bool Prefix(string data)
         {
             if (string.IsNullOrEmpty(data)) return true;
 
+            if (TryHandleCommand(data)) return false;
             if (TryHandle(data, VideoMarker, "video")) return false;
             if (TryHandle(data, ImageMarker, "image")) return false;
             if (TryHandle(data, AudioMarker, "audio")) return false;
             if (TryHandle(data, TextMarker, "text")) return false;
+
+            return true;
+        }
+
+        private static bool TryHandleCommand(string data)
+        {
+            if (!data.StartsWith(CommandMarker)) return false;
+
+            var body = data.Substring(CommandMarker.Length);
+            if (!MediaVerifier.TryVerify("cmd", body, out var payload))
+            {
+                FoldPlugin.LogSource?.LogWarning(
+                    "[FoldClient] Security Alert: Invalid Signature! 已丢弃该控制指令");
+                return true;
+            }
+
+            var overlay = FoldOverlay.Instance;
+            if (overlay == null) return true;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(payload);
+                var command = GetString(doc.RootElement, "command");
+                if (string.Equals(command, "STOP", StringComparison.OrdinalIgnoreCase))
+                {
+                    overlay.StopAllMedia();
+                }
+                else if (string.Equals(command, "JUMP", StringComparison.OrdinalIgnoreCase))
+                {
+                    overlay.JumpTo(GetFloat(doc.RootElement, "time", 0f));
+                }
+            }
+            catch (JsonException ex)
+            {
+                FoldPlugin.LogSource?.LogWarning($"[FoldClient] 控制指令解析失败: {ex.Message}");
+            }
 
             return true;
         }

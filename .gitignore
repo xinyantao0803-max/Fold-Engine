@@ -4,5 +4,7 @@ libs/
 keys/
 *.user
 Modules/
+FoldEdge/Assets/
+FoldEdge/Media/
 SCP Secret Laboratory/
 LabAPI.dll

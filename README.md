@@ -81,6 +81,11 @@ Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**�
 | **全屏视频** | FoldClient 用 `VideoPlayer` + `RenderTexture` 播放 MP4/WebM，带原声，F9 急停（Mono 与 IL2CPP 双版本） |
 | **客户端音频 / 字幕** | `[FOLD_AUDIO]` 走 `UnityWebRequestMultimedia` 2D 播放，`[FOLD_TEXT]` 用 TMP 在媒体下方渲染字幕 |
 | **媒体指令验签** | FoldEdge 用 ECDSA P-256 私钥签名，FoldClient 内置公钥验签，拒绝伪造、超过 3 秒或重放的指令 |
+| **定向播放** | timeline 支持 `target: all / role:Scp3114 / player:<SteamID64>`，只让目标玩家看到媒体标记 |
+| **媒体预处理** | `POST /api/media/upload` 上传视频，FFmpeg 自动转 1080p / ~3Mbps MP4，生成可访问 URL |
+| **一键发布** | `POST /api/module/publish` 把视频 URL、海报与时间轴打包成 `.fdll` |
+| **存储策略** | `MediaStorageStrategy = Local / CDN`，Local 内置 `/Assets` 静态文件服务，CDN 使用外链 |
+| **遥测与控制** | FoldClient 每秒上报播放状态；`/api/control/stop`、`/api/control/jump/{sec}` 下发 `[FOLD_CMD]` |
 | **合规标签强制注入** | manifest 含 `18+`/`GORE` 时，服务器名自动加前缀，重载后依然生效 |
 | **AES 加密模块** | `.fdll` 支持 `FOLDENC1`（AES-256-CBC）加密，主程序与插件均在内存解密，不落盘 |
 | **零第三方依赖（服务端）** | 插件仅依赖 LabAPI，手写 JSON 解析，不引入 `System.Web.Extensions` 等易崩程序集 |
@@ -186,6 +191,48 @@ demo.fdll  (ZIP)
 
 加密包由 FoldEdge 自动识别文件头并在内存解密；加密模块的播放指令以 `enc` 字段密文下发，插件在内存解密后再执行。预设密钥随引擎分发，属于**防随手解包**级别的混淆，不是强 DRM。
 
+### 4.3 媒体预处理与分发
+
+FoldEdge 自带 Web 面板（`http://127.0.0.1:9000/`）与以下 API：
+
+| Method | Route | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/media/upload` | 上传原始视频 → FFmpeg 转码 1080p / ~3Mbps MP4 → 返回 URL |
+| `POST` | `/api/module/publish` | 视频 URL + 海报 + 时间轴 → 一键生成 `.fdll` |
+| `POST` | `/api/control/stop` | 下发 `[FOLD_CMD] STOP`，客户端立即停止播放 |
+| `POST` | `/api/control/jump/{seconds}` | 下发 `[FOLD_CMD] JUMP`，跳转到指定秒数 |
+| `POST` | `/api/telemetry` | FoldClient 播放状态上报（HMAC 校验） |
+
+存储策略在 [appsettings.json](file:///D:/SL-Fold-Server%20Mod/FoldEdge/appsettings.json) 中配置：
+
+```json
+{
+  "ListenUrl": "http://127.0.0.1:9000",
+  "MediaStorageStrategy": "Local",
+  "PublicBaseUrl": "http://127.0.0.1:9000",
+  "CdnBaseUrl": ""
+}
+```
+
+- `Local`：FoldEdge 挂载 `/Assets` 静态文件服务，客户端直接从 `PublicBaseUrl/Assets/...` 下载。
+- `CDN`：生成的 URL 使用 `CdnBaseUrl/Assets/...`；实际对象存储上传需由服主的外部同步工具完成（本项目不内置 OSS/S3 SDK）。
+
+> **Flexible Media Distribution:** Server owners can choose between local hosting (zero cost, for small servers) or external CDN (for zero-lag, large scale servers).
+
+### 4.4 定向播放
+
+时间轴条目支持 `target`：
+
+```json
+{ "time": 5, "action": "SHOW_IMAGE", "url": "https://cdn/x.png", "target": "role:Scp3114" }
+```
+
+- `all`（默认）：全服广播
+- `role:Scp3114`：只发给当前该角色的玩家
+- `player:76561198000000000`：只发给指定玩家
+
+> **Supports Targeted Media Playback** (e.g., playing a cinematic only for the player who spawned as SCP-3114, without interrupting other players' gameplay).
+
 ---
 
 ## 5. 合规标签（Disclosure, not censorship）
@@ -208,6 +255,14 @@ demo.fdll  (ZIP)
 | `POST` | `/api/trigger/{module}` | 读取 `Modules/{module}.fdll`，下发 manifest + timeline |
 | `POST` | `/api/image` | 图片 URL（或 `test` / `smiley`）→ 像素矩阵（调试 API，客户端不再消费） |
 | `GET` | `/ws` | WebSocket 接入点（FoldEngine 长连接） |
+
+### 6.1 遥测与控制
+
+- FoldClient 播放视频/图片/音频时，每秒向 `/api/telemetry` 上报 `{status, mediaType, url, currentTime}`；停止或按 F9 时上报 `{"status":"stopped"}`。
+- FoldEdge 用 HMAC-SHA256 校验遥测，并拒绝超过 10 秒的包。
+- `/api/control/stop` 与 `/api/control/jump/{seconds}` 会生成 ECDSA 签名的 `[FOLD_CMD]` 标记，经 FoldEngine 透传给客户端执行。
+
+> 遥测目前直连 `127.0.0.1:9000`，适用于 FoldEdge 与客户端同机部署；远程客户端需要改 `TelemetryReporter.Endpoint` 或增加中继。HMAC 共享密钥只能防随意伪造，**不能证明客户端二进制身份**，README 不把它描述成客户端证明。
 
 ```bash
 # 查询状态
@@ -233,6 +288,12 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 │   ├── Modules/       # .fdll 模块目录（运行时自动创建，不入库）
 │   ├── Program.cs     # API + WebSocket + 模块读取 + AES 解密
 │   ├── MediaSigner.cs # ECDSA P-256 签名 + 时间轴签名
+│   ├── MediaPipeline.cs   # FFmpeg 转码 + 一键打包 .fdll
+│   ├── TelemetryVerifier.cs # 遥测 HMAC 校验
+│   ├── appsettings.json   # ListenUrl / MediaStorageStrategy / PublicBaseUrl / CdnBaseUrl
+│   ├── wwwroot/        # Web 面板（上传 / 发布 / STOP / JUMP）
+│   ├── Assets/         # Local 模式静态媒体（不入库）
+│   ├── Media/Uploads/  # 上传原始文件（不入库）
 │   ├── keys/          # 私钥/公钥（首次启动生成，不入库）
 │   ├── ImageService.cs# 图片下载 / 解码 / 降维
 │   └── Loc.cs         # 多语言
@@ -251,6 +312,7 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 │   ├── FoldPlugin.cs      # BasePlugin 入口 + ClassInjector
 │   ├── BroadcastPatcher.cs# 拦截 Broadcast.RpcAddElement（不依赖 TMP 劫持）
 │   ├── MediaVerifier.cs   # ECDSA P-256 验签 + 3 秒时间窗 + nonce 防重放
+│   ├── TelemetryReporter.cs # 播放状态遥测（HMAC）
 │   └── FoldOverlay.cs     # 图片 / 视频 / 音频 / 字幕 + F9 急停
 ├── tools/
 │   └── pack-fdll.ps1  # 模块打包（明文 / AES 加密）

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using LabApi.Features.Wrappers;
+using PlayerRoles;
 
 namespace FoldEngine
 {
@@ -17,6 +19,7 @@ namespace FoldEngine
         public string Nonce;  // 一次性随机数（客户端防重放）
         public string Sig;    // FoldEdge ECDSA 签名（插件不生成、不校验，只透传）
         public string Payload; // 已签名的媒体负载 JSON（插件原样拼进广播）
+        public string Target; // all / role:Scp3114 / player:765611980...
     }
 
     /// <summary>
@@ -79,7 +82,8 @@ namespace FoldEngine
                     Ts = (long)MiniJson.GetNumberValue(chunk, "ts", 0f),
                     Nonce = MiniJson.GetStringValue(chunk, "nonce") ?? string.Empty,
                     Sig = MiniJson.GetStringValue(chunk, "sig") ?? string.Empty,
-                    Payload = MiniJson.GetStringValue(chunk, "payload") ?? string.Empty
+                    Payload = MiniJson.GetStringValue(chunk, "payload") ?? string.Empty,
+                    Target = MiniJson.GetStringValue(chunk, "target") ?? "all"
                 });
             }
             items.Sort((a, b) => a.Time.CompareTo(b.Time));
@@ -185,7 +189,7 @@ namespace FoldEngine
                 switch (item.Action.ToLowerInvariant())
                 {
                     case "clear":
-                        Broadcast($"[Fold] {module} 画面已清除");
+                        SendToTargets($"[Fold] {module} 画面已清除", 1.5f, item.Target);
                         break;
                     case "show_image":
                     case "image":
@@ -212,7 +216,7 @@ namespace FoldEngine
                     case "show_text":
                     case "text":
                     default: // 纯文本广播
-                        Broadcast($"[Fold][{item.Time:F0}s] {item.Url}");
+                        SendToTargets($"[Fold][{item.Time:F0}s] {item.Url}", 1.5f, item.Target);
                         break;
                 }
             }
@@ -233,7 +237,8 @@ namespace FoldEngine
             if (!string.IsNullOrEmpty(item.Sig) && !string.IsNullOrEmpty(item.Payload) &&
                 !string.IsNullOrEmpty(item.Nonce))
             {
-                Broadcast(prefix + item.Ts + "|" + item.Nonce + "|" + item.Sig + "|" + item.Payload, 8f);
+                SendToTargets(prefix + item.Ts + "|" + item.Nonce + "|" + item.Sig + "|" + item.Payload,
+                    8f, item.Target);
                 return;
             }
 
@@ -253,6 +258,73 @@ namespace FoldEngine
                     FoldEdgeClient.Instance.RequestMedia("text", text: item.Url);
                     break;
             }
+        }
+
+        /// <summary>
+        /// 按 target 下发：all 走全服广播；role:/player: 用逐玩家 SendBroadcast，
+        /// 只有目标玩家会看到 [FOLD_*] 标记并触发客户端渲染。
+        /// </summary>
+        private void SendToTargets(string message, float duration, string target)
+        {
+            if (string.IsNullOrEmpty(target) || target.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                Broadcast(message, duration);
+                return;
+            }
+
+            if (target.StartsWith("role:", StringComparison.OrdinalIgnoreCase))
+            {
+                var roleText = target.Substring(5).Trim();
+                if (!Enum.TryParse(roleText, true, out RoleTypeId role))
+                {
+                    LabApi.Features.Console.Logger.Warn($"[Fold] 未知 target role: {roleText}");
+                    return;
+                }
+
+                int sent = 0;
+                foreach (var player in Player.List)
+                {
+                    if (player.Role != role) continue;
+                    player.SendBroadcast(message, (ushort)Math.Ceiling(duration),
+                        global::Broadcast.BroadcastFlags.Normal, false);
+                    sent++;
+                }
+                LabApi.Features.Console.Logger.Info($"[Fold] 定向广播 role:{role} → {sent} 人");
+                return;
+            }
+
+            if (target.StartsWith("player:", StringComparison.OrdinalIgnoreCase))
+            {
+                var rawId = target.Substring(7).Trim();
+                var player = FindPlayer(rawId);
+                if (player == null)
+                {
+                    LabApi.Features.Console.Logger.Warn($"[Fold] 定向广播找不到玩家: {rawId}");
+                    return;
+                }
+                player.SendBroadcast(message, (ushort)Math.Ceiling(duration),
+                    global::Broadcast.BroadcastFlags.Normal, false);
+                LabApi.Features.Console.Logger.Info($"[Fold] 定向广播 player:{rawId} → {player.Nickname}");
+                return;
+            }
+
+            Broadcast(message, duration);
+        }
+
+        private static Player FindPlayer(string playerId)
+        {
+            if (string.IsNullOrEmpty(playerId)) return null;
+
+            string userId = playerId.IndexOf('@') >= 0 ? playerId : playerId + "@steam";
+            var player = Player.Get(userId);
+            if (player != null) return player;
+
+            foreach (var candidate in Player.List)
+            {
+                if (string.Equals(candidate.Nickname, playerId, StringComparison.OrdinalIgnoreCase))
+                    return candidate;
+            }
+            return null;
         }
 
         /// <summary>原样广播 FoldEdge 签好的媒体标记（服务端绝不修改签名）。</summary>

@@ -5,26 +5,51 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FoldEdge;
+using Microsoft.Extensions.FileProviders;
 
 // ============================================================
 //  FoldEdge —— Fold 引擎外部主程序 (.NET 8 / ASP.NET Core)
 //  监听 127.0.0.1:9000，作为游戏内 FoldEngine 插件的控制端：
-//    GET  /api/status            查询运行状态
-//    POST /api/trigger/{module}  读取 Modules/*.fdll（ZIP）→ 下发 manifest + timeline
-//    POST /api/image             下载图片 → JSON 颜色矩阵 → 推送给插件
-//    GET  /ws                    WebSocket 接入点（FoldEngine 插件长连接）
-//  并用 FileSystemWatcher 监控 Modules 目录下的 *.fdll 模块包。
+//    GET  /api/status               运行状态 / 最后遥测
+//    POST /api/trigger/{module}     读取 Modules/*.fdll → 下发 manifest + timeline
+//    POST /api/image                调试：图片 URL → 像素矩阵
+//    POST /api/media/upload         上传视频 → FFmpeg 转码 → /Assets URL
+//    POST /api/module/publish       视频 URL + 海报 → 一键打包 .fdll
+//    POST /api/control/stop         下发 [FOLD_CMD] STOP
+//    POST /api/control/jump/{sec}   下发 [FOLD_CMD] JUMP
+//    POST /api/telemetry            FoldClient 播放状态遥测（HMAC 校验）
+//    GET  /ws                       WebSocket 接入点（FoldEngine 插件长连接）
 // ============================================================
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://127.0.0.1:9000");
+builder.WebHost.UseUrls(builder.Configuration["ListenUrl"] ?? "http://127.0.0.1:9000");
 
 var app = builder.Build();
 app.UseWebSockets();
 
+// ---- 媒体存储策略：Local（本机静态文件）或 CDN（外链） ----
+var storageStrategy = (builder.Configuration["MediaStorageStrategy"] ?? "Local").Trim();
+var publicBaseUrl = builder.Configuration["PublicBaseUrl"] ?? "http://127.0.0.1:9000";
+var cdnBaseUrl = builder.Configuration["CdnBaseUrl"] ?? string.Empty;
+
+var assetsDir = Path.Combine(app.Environment.ContentRootPath, "Assets");
+var uploadDir = Path.Combine(app.Environment.ContentRootPath, "Media", "Uploads");
+Directory.CreateDirectory(assetsDir);
+Directory.CreateDirectory(uploadDir);
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(assetsDir),
+    RequestPath = "/Assets"
+});
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 var startTime = DateTime.UtcNow;
 var modulesDir = Path.Combine(app.Environment.ContentRootPath, "Modules");
 Directory.CreateDirectory(modulesDir);
+
+var lastTelemetry = "none";
 
 // 多语言：默认 zh-CN（后续可从配置或请求头切换，见 Loc.Load）
 Loc.Load("zh-CN");
@@ -37,6 +62,9 @@ Console.WriteLine(MediaSigner.PublicKeyPem);
 
 // ---- WebSocket 客户端（游戏内 FoldEngine 插件）连接表 ----
 var clients = new ConcurrentDictionary<Guid, WebSocket>();
+
+static string GetString(JsonElement root, string name) =>
+    root.TryGetProperty(name, out var value) ? value.GetString() ?? string.Empty : string.Empty;
 
 // 计算仍然存活的客户端，并顺手清理已断开/半关闭的连接
 int CountAliveClients()
@@ -350,6 +378,8 @@ app.MapGet("/api/status", () => Results.Ok(new
     listen = "127.0.0.1:9000",
     uptimeSeconds = (long)(DateTime.UtcNow - startTime).TotalSeconds,
     clients = CountAliveClients(),
+    mediaStorage = storageStrategy,
+    lastTelemetry,
     modules = Directory.GetFiles(modulesDir, "*.fdll").Select(Path.GetFileName).ToArray()
 }));
 
@@ -388,6 +418,128 @@ app.MapPost("/api/image", async (HttpContext context) =>
     {
         return Results.BadRequest(new { error = ex.Message });
     }
+});
+
+// ---- POST /api/media/upload：上传原始视频 → FFmpeg 转码 → /Assets URL ----
+app.MapPost("/api/media/upload", async (HttpContext context) =>
+{
+    if (!context.Request.HasFormContentType)
+        return Results.BadRequest(new { error = "multipart/form-data required" });
+
+    var form = await context.Request.ReadFormAsync();
+    var file = form.Files.FirstOrDefault();
+    if (file == null || file.Length == 0)
+        return Results.BadRequest(new { error = "missing file" });
+
+    var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+    var id = Guid.NewGuid().ToString("N");
+    var input = Path.Combine(uploadDir, id + extension);
+    await using (var stream = File.Create(input))
+    {
+        await file.CopyToAsync(stream);
+    }
+
+    string fileName;
+    bool transcoded = false;
+
+    if (await MediaPipeline.HasFfmpegAsync())
+    {
+        fileName = id + ".mp4";
+        try
+        {
+            await MediaPipeline.TranscodeAsync(
+                input, Path.Combine(assetsDir, fileName), CancellationToken.None);
+            transcoded = true;
+        }
+        catch (Exception ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+    else if (extension is ".mp4" or ".webm")
+    {
+        fileName = id + extension;
+        File.Copy(input, Path.Combine(assetsDir, fileName), true);
+    }
+    else
+    {
+        return Results.BadRequest(new
+        {
+            error = "ffmpeg not found; only mp4/webm can be served without transcoding"
+        });
+    }
+
+    var baseUrl = storageStrategy.Equals("CDN", StringComparison.OrdinalIgnoreCase)
+        ? cdnBaseUrl
+        : publicBaseUrl;
+    var url = string.IsNullOrEmpty(baseUrl)
+        ? "/Assets/" + fileName
+        : baseUrl.TrimEnd('/') + "/Assets/" + fileName;
+
+    return Results.Ok(new { url, fileName, transcoded, storage = storageStrategy });
+});
+
+// ---- POST /api/module/publish：视频 + 海报 + 时间轴 → 一键生成 .fdll ----
+app.MapPost("/api/module/publish", (ModulePublishRequest request) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.VideoUrl))
+        return Results.BadRequest(new { error = "name and videoUrl are required" });
+
+    var path = MediaPipeline.BuildModule(modulesDir, request);
+    return Results.Ok(new
+    {
+        module = Path.GetFileNameWithoutExtension(path),
+        file = path
+    });
+});
+
+// ---- POST /api/control/*：[FOLD_CMD] STOP / JUMP，ECDSA 签名后由插件透传 ----
+async Task<IResult> SendControlAsync(string command, double seconds)
+{
+    var payload = command == "JUMP"
+        ? JsonSerializer.Serialize(new { command, time = seconds }, jsonOpts)
+        : JsonSerializer.Serialize(new { command }, jsonOpts);
+    var marker = MediaSigner.BuildMarker("[FOLD_CMD]", "cmd", payload);
+
+    int sent = await BroadcastAsync(JsonSerializer.Serialize(new
+    {
+        type = "command",
+        command = "control",
+        marker
+    }, jsonOpts));
+
+    return Results.Ok(new { sent, marker });
+}
+
+app.MapPost("/api/control/stop", () => SendControlAsync("STOP", 0));
+app.MapPost("/api/control/jump/{seconds:double}",
+    (double seconds) => SendControlAsync("JUMP", seconds));
+
+// ---- POST /api/telemetry：FoldClient 播放状态（HMAC 校验） ----
+app.MapPost("/api/telemetry", async (HttpContext context) =>
+{
+    using var doc = await JsonDocument.ParseAsync(context.Request.Body);
+    var root = doc.RootElement;
+
+    string status = GetString(root, "status");
+    string mediaType = GetString(root, "mediaType");
+    string url = GetString(root, "url");
+    double currentTime = root.TryGetProperty("currentTime", out var timeEl) &&
+                         timeEl.TryGetDouble(out var parsedTime)
+        ? parsedTime
+        : 0;
+    long timestamp = root.TryGetProperty("timestamp", out var tsEl) &&
+                     tsEl.TryGetInt64(out var parsedTimestamp)
+        ? parsedTimestamp
+        : 0;
+    string signature = GetString(root, "signature");
+
+    if (!TelemetryVerifier.Verify(status, mediaType, url, currentTime, timestamp, signature))
+        return Results.Unauthorized();
+
+    lastTelemetry = $"{status} {mediaType} {url} {currentTime:F1}s";
+    Console.WriteLine($"[FoldEdge] telemetry: {lastTelemetry}");
+    return Results.Ok(new { ok = true });
 });
 
 // ---- 优雅退出：释放 Watcher 并关闭全部连接 ----

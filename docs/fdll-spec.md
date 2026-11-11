@@ -71,6 +71,18 @@ The file can be a bare array `[ ... ]` or an object `{ "entries": [ ... ] }`; bo
 
 `CONTROL_DOOR` states: `open`, `close`, `lock`, `unlock`, `toggle` (default).
 
+### Targeted Playback
+
+Every timeline entry accepts an optional `target` field:
+
+| Value | Meaning |
+| --- | --- |
+| `all` (default) | Broadcast to every player. |
+| `role:Scp3114` | Only players currently in that role. |
+| `player:76561198000000000` | Only that player (`@steam` optional). |
+
+Non-`all` targets are delivered with per-player broadcasts, so only the selected players see the media marker and trigger their FoldClient overlay.
+
 **Signed media markers:** client-bound media actions are signed by FoldEdge with **ECDSA P-256 (SHA-256)** and delivered as:
 
 ```text
@@ -94,6 +106,7 @@ The signature covers `kind + "\n" + payload-json + "\n" + timestamp-ms + "\n" + 
   { "time": 12.0, "action": "CHANGE_ROLE",  "playerId": "76561198000000000", "role": "Scp096" },
   { "time": 13.0, "action": "SPAWN_ITEM",   "itemId": "KeycardO5", "position": "0,1,0" },
   { "time": 14.0, "action": "CONTROL_DOOR", "doorName": "HczArmory", "state": "lock" },
+  { "time": 15.0, "action": "SHOW_IMAGE",   "url": "https://cdn.fold.com/3114.png", "target": "role:Scp3114" },
   { "time": 16.0, "action": "CLEAR" }
 ]
 ```

@@ -152,8 +152,9 @@ namespace FoldEngine
         {
             var command = MiniJson.GetStringValue(json, "command");
 
-            // 媒体标记由 FoldEdge 签名，插件只做原样透传
-            if (string.Equals(command, "media", StringComparison.OrdinalIgnoreCase))
+            // 媒体/控制标记由 FoldEdge 签名，插件只做原样透传
+            if (string.Equals(command, "media", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(command, "control", StringComparison.OrdinalIgnoreCase))
             {
                 var marker = MiniJson.GetStringValue(json, "marker");
                 if (!string.IsNullOrEmpty(marker))

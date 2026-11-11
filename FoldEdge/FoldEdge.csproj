@@ -9,5 +9,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Update="locales\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
