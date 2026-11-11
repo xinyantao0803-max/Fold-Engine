@@ -25,6 +25,16 @@ FoldClient is a **passive, ECDSA-authenticated media renderer**:
 
 **EULA:** FoldClient is a UI-only renderer that does not alter gameplay. Server owners are solely responsible for the content they upload, distribute or display.
 
+### Whitelisting & Distribution Transparency
+
+**What exists today.** `FoldClient.IL2CPP` is a BepInEx 6 (IL2CPP) plugin. The current development build is loaded by the standard BepInEx 6 loader. There is **no custom "Fold Launcher" in this repository yet**, and we will not describe the development build as a closed sandbox.
+
+**What we are proposing for whitelisted distribution.** If Northwood approves a dedicated component, we intend to ship a minimal loader that embeds only the signed FoldClient assembly and exposes no plugin directory or third-party DLL loading path. The loader would verify the embedded assembly's ECDSA signature before loading. This is a **design proposal, not a shipped capability**; it must be reviewed before it is claimed.
+
+**What this can and cannot do.** ECDSA verification ensures that only media commands signed by FoldEdge are rendered by FoldClient. It does **not**, and cannot, make a modified game client incapable of ESP or other cheats. A custom loader can restrict what *our* loader loads, not what a determined attacker does to their own client. We do not claim "physically impossible".
+
+**Review request.** We invite Northwood's security team to review the source in this repository, especially the ECDSA verification path (`FoldClient.IL2CPP/MediaVerifier.cs`) and the media-only renderer (`FoldClient.IL2CPP/FoldOverlay.cs`). We are happy to answer questions or adjust the design before distribution.
+
 ---
 
 ## 1. 架构
@@ -342,7 +352,7 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 
 FoldClient 是专为官方白名单审查准备的**纯净媒体组件**，不包含任何玩法逻辑。白名单通过后，它的目标分发形态是**官方认可的独立组件**：玩家无需手动配置 BepInEx，也无需修改任何游戏文件。
 
-> **当前真实状态**：开发版仍需要 BepInEx 6（IL2CPP），尚未获得 Northwood 官方认可。在收到正式许可前，请勿把本插件对外描述为“官方组件”。
+> **当前真实状态**：开发版仍需要 BepInEx 6（IL2CPP），尚未获得 Northwood 官方认可。**目前不存在名为 “Fold Launcher” 的定制启动器**；它只是白名单通过后的分发提案。在收到正式许可前，请勿把本插件对外描述为“官方组件”或“封闭沙盒”。
 
 ### 9.2 玩家端安装
 
