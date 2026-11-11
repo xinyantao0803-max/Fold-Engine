@@ -1,0 +1,45 @@
+site_name: SCP:SL Fold Mod
+site_description: Zero-Trust media and event framework for SCP:SL
+site_author: Fold Team
+repo_url: https://github.com/xinyantao0803-max/Fold-Engine
+repo_name: xinyantao0803-max/Fold-Engine
+edit_uri: edit/main/docs/
+
+docs_dir: ../docs
+site_dir: site
+
+theme:
+  name: material
+  language: zh
+  palette:
+    scheme: slate
+    primary: deep purple
+    accent: cyan
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  font:
+    text: Rajdhani
+    code: JetBrains Mono
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Dual-Track Integration: native-integration.md
+  - .fdll Spec: fdll-spec.md
+  - Security: nw-security.md
+  - Docker: docker.md
+  - NW Email Draft: nw-email-draft.md

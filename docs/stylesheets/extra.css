@@ -1,0 +1,206 @@
+/*
+ * SCP:SL Fold Mod — documentation theme.
+ * Dark, high-contrast "facility terminal" look layered on MkDocs Material (slate).
+ */
+
+:root {
+  --fold-cyan: #22d3ee;
+  --fold-violet: #8b5cf6;
+  --fold-ink: #0b0f19;
+  --fold-panel: rgba(255, 255, 255, 0.035);
+  --fold-line: rgba(34, 211, 238, 0.28);
+}
+
+/* ---------------------------------------------------------------- backdrop */
+
+body,
+.md-container {
+  background:
+    radial-gradient(1100px 520px at 12% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
+    radial-gradient(900px 460px at 92% 0%, rgba(34, 211, 238, 0.12), transparent 62%),
+    linear-gradient(180deg, #0b0f19 0%, #080a12 55%, #05070c 100%);
+  background-attachment: fixed;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: transparent;
+}
+
+/* -------------------------------------------------------------------- hero */
+
+.fold-hero {
+  margin: 1.2rem 0 2.2rem;
+  padding: 2.4rem 2rem;
+  border: 1px solid var(--fold-line);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(139, 92, 246, 0.14), rgba(34, 211, 238, 0.06) 55%, transparent),
+    var(--fold-panel);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.fold-hero h1 {
+  margin: 0 0 0.35rem;
+  font-size: 2.1rem;
+  letter-spacing: 0.02em;
+  background: linear-gradient(92deg, #ffffff 0%, var(--fold-cyan) 55%, var(--fold-violet) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.fold-hero p {
+  margin: 0.35rem 0 0;
+  color: rgba(226, 240, 255, 0.78);
+  font-size: 0.98rem;
+}
+
+.fold-hero .fold-tag {
+  display: inline-block;
+  margin-bottom: 0.9rem;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid var(--fold-line);
+  border-radius: 999px;
+  color: var(--fold-cyan);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------- dual cards */
+
+.fold-grid {
+  display: grid;
+  gap: 1.1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin: 1.4rem 0 2rem;
+}
+
+.fold-card {
+  padding: 1.25rem 1.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.fold-card:hover {
+  border-color: var(--fold-line);
+  transform: translateY(-2px);
+}
+
+.fold-card h3 {
+  margin: 0 0 0.55rem;
+  color: #f8fbff;
+  font-size: 1.05rem;
+}
+
+.fold-card p {
+  margin: 0.35rem 0;
+  color: rgba(222, 236, 250, 0.8);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.fold-card .fold-badge {
+  display: inline-block;
+  padding: 0.12rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fold-cyan);
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.28);
+}
+
+.fold-card.plan-b .fold-badge {
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.12);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+/* ------------------------------------------------------------------ text */
+
+.md-typeset h1,
+.md-typeset h2 {
+  letter-spacing: 0.01em;
+}
+
+.md-typeset h2 {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.14);
+}
+
+.md-typeset a {
+  text-decoration: none;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.28);
+}
+
+.md-typeset a:hover {
+  border-bottom-color: var(--fold-cyan);
+}
+
+.md-typeset blockquote {
+  margin: 1rem 0;
+  padding: 0.85rem 1.1rem;
+  border-left: 3px solid var(--fold-cyan);
+  border-radius: 0 10px 10px 0;
+  background: rgba(34, 211, 238, 0.05);
+  color: rgba(228, 241, 255, 0.9);
+}
+
+.md-typeset code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.82em;
+}
+
+.md-typeset pre > code {
+  border-radius: 10px;
+}
+
+.md-typeset table:not([class]) {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.md-typeset table:not([class]) th {
+  background: rgba(34, 211, 238, 0.08);
+  color: #e8f6ff;
+}
+
+.md-typeset table:not([class]) tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ------------------------------------------------------------------- misc */
+
+.md-header {
+  backdrop-filter: blur(8px);
+  background: rgba(8, 11, 18, 0.82);
+  border-bottom: 1px solid rgba(34, 211, 238, 0.16);
+}
+
+.md-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(5, 7, 12, 0.85);
+}
+
+.md-search__form {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@media (max-width: 640px) {
+  .fold-hero {
+    padding: 1.6rem 1.1rem;
+  }
+
+  .fold-hero h1 {
+    font-size: 1.55rem;
+  }
+}

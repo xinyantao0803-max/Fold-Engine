@@ -1,0 +1,44 @@
+# Fold Mod — one-command FH deployment.
+#
+# network_mode: "host" is mandatory: it avoids an extra UDP/NAT hop and lets the
+# SCP:SL server on the same host reach FH at ws://127.0.0.1:9000/ws.
+#
+# Start:
+#   docker compose up -d --build
+#
+# Logs:
+#   docker compose logs -f foldedge
+
+services:
+  foldedge:
+    build:
+      context: .
+      dockerfile: FoldEdge/Dockerfile
+    container_name: foldedge
+    network_mode: "host"
+    restart: always
+    volumes:
+      - ./FoldEdge/keys:/app/keys
+      - ./FoldEdge/Modules:/app/Modules
+      - ./FoldEdge/Assets:/app/Assets
+      - ./FoldEdge/Media:/app/Media
+    environment:
+      - ASPNETCORE_URLS=http://127.0.0.1:9000
+      - DOTNET_ENVIRONMENT=Production
+
+  # ---------------------------------------------------------------------------
+  # SCP:SL game server
+  #
+  # A reliable game-server image depends on the server distribution and LabAPI
+  # version you use, so this repository does not ship a fake/untested image.
+  # Add your existing SCP:SL server service here, keep network_mode: "host",
+  # and point FoldEngine's FoldEdgeUrl to ws://127.0.0.1:9000/ws.
+  #
+  #  scpsl:
+  #    image: ${SCPSL_IMAGE}
+  #    container_name: scpsl
+  #    network_mode: "host"
+  #    restart: always
+  #    volumes:
+  #      - ./scpsl:/scpsl
+  # ---------------------------------------------------------------------------

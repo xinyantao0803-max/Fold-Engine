@@ -4,7 +4,7 @@
 
 **数据驱动的 SCP:SL 媒体与事件引擎。**
 
-Fold Mod 由三个独立模块组成：**FH（FoldEdge）**、**FE（FoldEngine）**、**FVP（FoldClient）**。
+Fold Mod 由三个运行模块组成：**FH（FoldEdge）**、**FE（FoldEngine）**、**FVP（FoldClient）**；同时提供可直接合入官方客户端的 **FVP-Native（FoldNativeClient）** 原生模块。
 它不依赖 BepInEx、不使用 C++ 注入器、不修改游戏内存，也不调用任何游戏内 Unity API。
 
 **Not just a media player, but a Zero-Trust network protocol reference for SCP:SL.**
@@ -13,14 +13,60 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](#)
 [![Client](https://img.shields.io/badge/client-WPF%20%2B%20Media%20Foundation-4b8bbe)](#)
+[![Native](https://img.shields.io/badge/native-Unity%20C%23%20module-22d3ee)](#)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](#license)
+
+文档中心：https://xinyantao0803-max.github.io/Fold-Engine/ · 官方审查指南：[NW-REVIEW.md](NW-REVIEW.md)
+
+---
+
+## 🌟 两套接入方案 (Two Integration Solutions)
+
+> **方案 A 现已可用：服主无需修改游戏本体。**  
+> **方案 B 已写入本仓库：Northwood 可直接把源码并入官方客户端。**
+
+### 方案 A：外部独立渲染器 (External Renderer — Zero Injection)
+
+> **适用场景**：现阶段服主即刻可用，无需修改游戏本体。  
+> **核心特性**：独立的 WPF 进程，通过 Windows MF 原生硬解全屏播放。**SL-AC 绝对安全，绝不碰游戏内存。**  
+> **获取方式**：下载我们的 **FoldClient** 即可使用。
+
+- **代码位置**：[`FoldClient/`](FoldClient/)
+- **渲染路径**：Media Foundation + DXVA → `WriteableBitmap` → 全屏置顶、鼠标穿透的 WPF 覆盖层
+- **边界**：不注入进程、不加载 BepInEx、不调用任何游戏内 Unity API
+
+### 方案 B：原生引擎集成代码 (Native Engine Integration — For NW Studio)
+
+> **适用场景**：专为 Northwood 官方准备的终极形态。**直接随游戏下发与更新。**  
+> **核心特性**：这绝对不是外部程序。这是一套**纯正的 C# 原生代码模块**，官方可以直接将源码合并入 SCP:SL 的客户端源码中。  
+> **渲染方式**：在游戏引擎内部，直接调用 Unity 的最高层 UI `Canvas`（`sortingOrder = 9999`）进行原生强渲染。不仅性能达到极限，而且能完美与游戏内置语音、音频系统融合。  
+> **优势**：玩家不需要开任何外部软件，官方不需要维护额外进程，彻底改变 SCP:SL 的剧情表现力。
+
+- **查看原生集成代码**：[`FoldNativeClient/`](FoldNativeClient/)
+- **官方合入指南**：[`NW-REVIEW.md`](NW-REVIEW.md) · [`docs/native-integration.md`](docs/native-integration.md)
+- **渲染路径**：`Canvas` → `RawImage` → `VideoPlayer` + `RenderTexture` / `AudioSource`
+
+### 双轨对照 (At a Glance)
+
+| | 方案 A · External Renderer | 方案 B · Native Integration |
+| --- | --- | --- |
+| 运行形态 | 独立 WPF 进程 | 游戏内 Unity C# 脚本 |
+| 是否修改游戏 | 否 | 是（源码级合入） |
+| 渲染层 | 外部置顶覆盖层 | 引擎内 `Canvas`（9999） |
+| 注入 / Hook | **零注入** | 无（官方自行编译） |
+| 音频融合 | 系统混音 | Unity `AudioSource` 原生融合 |
+| 适用对象 | 服主 / 社区 | Northwood Studios |
+| 代码 | [`FoldClient/`](FoldClient/) | [`FoldNativeClient/`](FoldNativeClient/) |
+
+**两套方案共用同一套 ECDSA 签名信封**（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）：服务端只需签名一次，任一客户端实现都可验签执行。
 
 ---
 
 ## FoldStudio (FS)
 
 **FoldStudio (FS) 是完全独立、基于 MIT 协议开源的多媒体创作工具，不属于本仓库，也不受 PFN 1.0 约束。**  
-它支持导出通用格式（MP4 / PNG 等）以及 `.fdll` 模块；Fold Mod 只把 `.fdll` 当作数据读取。
+它支持导出通用格式（MP4 / PNG 等）以及 `.fdll` 模块；Fold Mod 只把 `.fdll` 当作数据读取。  
+完整的产品形态、界面布局与里程碑见 **[FoldStudio/ROADMAP.md](FoldStudio/ROADMAP.md)**。
 
 ---
 
@@ -53,7 +99,7 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 
 ---
 
-## 2. 三个核心模块
+## 2. 核心模块
 
 ### 2.1 FH · FoldEdge（主脑与规则引擎）
 
@@ -99,6 +145,19 @@ FE 没有任何自主逻辑，是 FH 的提线木偶：
 
 > 当前版本提供视频与图片渲染；音频播放尚未接入。  
 > 游戏需使用**窗口化**或**无边框全屏**，独占全屏下任何覆盖层都无法显示。
+
+### 2.4 FVP-Native · FoldNativeClient（Unity 原生集成模块）
+
+`FoldNativeClient/` · 纯 Unity C# 脚本集 · **不产生独立可执行文件**
+
+- 官方可直接复制进 SCP:SL 客户端源码，随游戏下发与更新
+- `FoldNativeUI`：`ScreenSpaceOverlay` Canvas（`sortingOrder = 9999`）+ 黑色背景 + `RawImage` + `AspectRatioFitter`
+- `PlayVideo(string url)`：Unity `VideoPlayer` → `RenderTexture` → `RawImage`，音频走 `AudioSource`
+- `PlayImage(string url)`：`UnityWebRequestTexture` 原生加载
+- `Stop()`：停止播放并销毁 Canvas、`RenderTexture`、`VideoPlayer` 与 `AudioSource`；F9 同样触发
+- 复用同一套 ECDSA P-256 验签、3 秒时间窗、nonce 防重放与固定公钥（fail-closed）
+- 在任意 Mirror 包处理回调中调用 `FoldNativeRuntime.HandleMarker(marker)` 即可
+- 集成说明：[FoldNativeClient/README.md](FoldNativeClient/README.md) · 官方合入指南：[NW-REVIEW.md](NW-REVIEW.md)
 
 ---
 
@@ -311,7 +370,30 @@ fold image http://127.0.0.1:9000/Assets/your-image.png
 
 ---
 
-## 6. 构建
+## 6. 一键部署（One-Click Deployment via Docker）
+
+根目录的 `docker-compose.yml` 与 [FoldEdge/Dockerfile](FoldEdge/Dockerfile) 可把 FH 作为常驻服务运行：
+
+```bash
+docker compose up -d --build
+docker compose logs -f foldedge
+```
+
+关键配置：
+
+- **`network_mode: "host"`**：不做额外端口映射，避免 NAT/UDP 跳数；同机游戏服务端可直接访问 `ws://127.0.0.1:9000/ws`
+- **`restart: always`**：进程崩溃或宿主重启后自动恢复
+- **卷挂载**：`./FoldEdge/keys`、`./FoldEdge/Modules`、`./FoldEdge/Assets`、`./FoldEdge/Media`
+
+> 首次启动会在挂载的 `./FoldEdge/keys` 中生成 ECDSA 密钥对；该目录已被 `.gitignore` 排除，不会进入镜像或仓库。  
+> `docker-compose.yml` 只包含 FH 服务。SCP:SL 游戏服务端镜像取决于你的服务端发行版与 LabAPI 版本，请按文件内注释自行加入，并保持 `network_mode: "host"`。  
+> FH 镜像基于 `mcr.microsoft.com/dotnet/aspnet:8.0`，图片处理使用 `SkiaSharp.NativeAssets.Linux.NoDependencies`，无需额外系统库。
+
+详细说明见 [docs/docker.md](docs/docker.md)。
+
+---
+
+## 7. 构建
 
 > **编译前置**：`FoldEngine` 需要服务端提供的引用程序集：  
 > - 将 `LabAPI.dll`、`Assembly-CSharp.dll`、`CommandSystem.Core.dll`、`Mirror.dll`、`UnityEngine.CoreModule.dll` 放到 `FoldEngine/libs/`  
@@ -322,6 +404,10 @@ dotnet build .\FoldEdge\FoldEdge.csproj   -c Release
 dotnet build .\FoldEngine\FoldEngine.csproj -c Release
 dotnet build .\FoldClient\FoldClient.csproj -c Release
 dotnet build .\tools\FoldPacker\FoldPacker.csproj -c Release
+
+# 原生模块语法检查（UNITY_MANAGED_DIR 指向 Unity 或 SCP:SL 的 Managed 目录）
+dotnet build .\FoldNativeClient\FoldNativeClient.csproj -c Release `
+  -p:UNITY_MANAGED_DIR="D:\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed"
 ```
 
 客户端解码器独立测试：
@@ -332,29 +418,41 @@ dotnet run --project .\tests\FoldClient.Test\FoldClient.Test.csproj -c Release
 
 ---
 
-## 7. 仓库结构
+## 8. 仓库结构
 
 ```
 FoldEdge/               FH 主程序（规则引擎、解包、ECDSA 签名）
+├─ Dockerfile           FH 容器构建（.NET 8，多阶段）
 FoldEngine/             FE 服务端插件（LabAPI 空壳代理）
-FoldClient/             FVP 客户端（WPF + Media Foundation）
+FoldClient/             FVP 客户端（WPF + Media Foundation，方案 A）
 └─ Core/                解码与验签核心库
+FoldNativeClient/       FVP-Native Unity C# 模块（方案 B，供官方合入）
+└─ README.md            原生集成说明与构建检查
+FoldStudio/
+└─ ROADMAP.md           FS 独立编辑器规划（MIT）
 docs/
+├─ index.md             文档站首页（双轨制）
+├─ native-integration.md 方案 B 合入说明
+├─ docker.md            Docker 部署说明
 ├─ fdll-spec.md         .fdll 规范（时间轴、优先级、标签）
 ├─ nw-security.md       Northwood Studios 安全声明（防 MitM / 零信任协议）
-└─ nw-email-draft.md    给 Northwood Studios 的邮件草稿
+├─ nw-email-draft.md    给 Northwood Studios 的邮件草稿
+└─ stylesheets/         文档站主题样式
+docs-site/              MkDocs Material 配置（GitHub Pages）
 tests/
-└─ FoldClient.Test/     解码器独立测试
+└─ FoldClient.Test/     解码器与验签独立测试
 tools/
 ├─ pack-fdll.ps1        旧版 PowerShell 打包脚本
 └─ FoldPacker/          C# CLI 打包工具（加密 / 签名）
+docker-compose.yml      FH 一键部署（host 网络、自动重启）
+NW-REVIEW.md            给 Northwood 的审查与原生合入指南
 README.md
 LICENSE                 PolyForm Noncommercial 1.0.0（PFN 1.0）
 ```
 
 ---
 
-## 8. 社区规范与合规
+## 9. 社区规范与合规
 
 - **强制标签**：包含 18+ 或 GORE 内容的 `.fdll` 必须在 `manifest.json` 中声明对应标签；FH 会把警告前缀注入服务器名。
 - **本地家长控制**：FVP 默认拒绝 `18+` / `GORE` 标签内容，玩家可在本地关闭。
@@ -365,7 +463,7 @@ LICENSE                 PolyForm Noncommercial 1.0.0（PFN 1.0）
 
 ---
 
-## 9. 免责声明
+## 10. 免责声明
 
 - 本项目与 Northwood Studios 无隶属关系，未获得官方背书。
 - 项目按白名单审查标准设计；在收到 Northwood 书面许可前，请勿将其描述为“官方组件”，也不要用于公共服务器分发。
@@ -375,7 +473,7 @@ LICENSE                 PolyForm Noncommercial 1.0.0（PFN 1.0）
 
 ---
 
-## 10. License
+## 11. License
 
 **PolyForm Noncommercial License 1.0.0 (PFN 1.0)**  
 https://polyformproject.org/licenses/noncommercial/1.0.0

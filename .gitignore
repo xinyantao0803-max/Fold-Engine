@@ -23,6 +23,12 @@ FoldEdge/Media/
 .screenshots/
 tests/**/first_frame.*
 
+# docs site build
+docs-site/site/
+site/
+.venv/
+__pycache__/
+
 # IDE
 *.user
 *.suo
