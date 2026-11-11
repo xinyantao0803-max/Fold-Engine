@@ -7,6 +7,10 @@
 Fold Mod 由三个独立模块组成：**FH（FoldEdge）**、**FE（FoldEngine）**、**FVP（FoldClient）**。
 它不依赖 BepInEx、不使用 C++ 注入器、不修改游戏内存，也不调用任何游戏内 Unity API。
 
+**Not just a media player, but a Zero-Trust network protocol reference for SCP:SL.**
+
+Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播放指令，也被整理为一份可供官方借鉴的零信任网络扩展方案：见 [docs/nw-security.md](docs/nw-security.md) 与 [给 NW 的邮件草稿](docs/nw-email-draft.md)。
+
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](#)
 [![Client](https://img.shields.io/badge/client-WPF%20%2B%20Media%20Foundation-4b8bbe)](#)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](#license)
@@ -337,7 +341,8 @@ FoldClient/             FVP 客户端（WPF + Media Foundation）
 └─ Core/                解码与验签核心库
 docs/
 ├─ fdll-spec.md         .fdll 规范（时间轴、优先级、标签）
-└─ nw-security.md       Northwood Studios 安全声明（防 MitM）
+├─ nw-security.md       Northwood Studios 安全声明（防 MitM / 零信任协议）
+└─ nw-email-draft.md    给 Northwood Studios 的邮件草稿
 tests/
 └─ FoldClient.Test/     解码器独立测试
 tools/
