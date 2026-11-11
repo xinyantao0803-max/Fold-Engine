@@ -39,8 +39,7 @@ namespace FoldEngine
 
             UI = new FoldUIManager();
 
-            // 连接 FoldEdge 主程序：插件端只接收数据、纯渲染
-            FoldEdgeClient.Instance.ImageFrameReceived += OnImageFrame;
+            // 连接 FoldEdge 主程序：插件端只接收指令，媒体全部交给客户端渲染
             FoldEdgeClient.Instance.Start();
 
             // 注册名为 "fold" 的游戏控制台指令
@@ -50,19 +49,12 @@ namespace FoldEngine
         public override void Disable()
         {
             // 清理资源：断开主程序连接、停止播放、注销指令
-            FoldEdgeClient.Instance.ImageFrameReceived -= OnImageFrame;
             FoldEdgeClient.Instance.Stop();
             UI?.Stop();
             UI = null;
             Server.GameConsoleCommandHandler.UnregisterCommand(_foldCommand);
 
             Logger.Info("[Fold] 引擎已卸载");
-        }
-
-        /// <summary>接收主程序下发的图片帧并渲染。</summary>
-        private void OnImageFrame(ImageFrameData frame)
-        {
-            UI?.RenderImageFrame(frame.Width, frame.Height, frame.Pixels, frame.Duration);
         }
 
         /// <summary>

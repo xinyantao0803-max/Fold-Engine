@@ -38,9 +38,29 @@ Console.WriteLine(MediaSigner.PublicKeyPem);
 // ---- WebSocket 客户端（游戏内 FoldEngine 插件）连接表 ----
 var clients = new ConcurrentDictionary<Guid, WebSocket>();
 
-async Task BroadcastAsync(string json)
+// 计算仍然存活的客户端，并顺手清理已断开/半关闭的连接
+int CountAliveClients()
+{
+    int count = 0;
+    foreach (var (id, socket) in clients)
+    {
+        if (socket.State == WebSocketState.Open)
+        {
+            count++;
+        }
+        else
+        {
+            clients.TryRemove(id, out _);
+        }
+    }
+    return count;
+}
+
+// 推送并返回实际成功发送的客户端数量；失败的连接立即从活动列表移除
+async Task<int> BroadcastAsync(string json)
 {
     var payload = Encoding.UTF8.GetBytes(json);
+    int sent = 0;
     foreach (var (id, socket) in clients)
     {
         if (socket.State != WebSocketState.Open)
@@ -51,12 +71,15 @@ async Task BroadcastAsync(string json)
         try
         {
             await socket.SendAsync(payload, WebSocketMessageType.Text, true, CancellationToken.None);
+            sent++;
         }
         catch
         {
             clients.TryRemove(id, out _);
+            try { socket.Abort(); } catch { /* 已断开 */ }
         }
     }
+    return sent;
 }
 
 // ---- .fdll 模块包（ZIP）读取：manifest.json + timeline.json ----
@@ -158,8 +181,8 @@ async Task<ImageFrame> PushImageAsync(string url, int maxWidth, int maxHeight, f
         duration,
         frames = frame.Frames
     });
-    Console.WriteLine($"[FoldEdge] {Loc.Get("image.converted", frame.Width, frame.Height, clients.Count)}");
-    await BroadcastAsync(payload);
+    int sent = await BroadcastAsync(payload);
+    Console.WriteLine($"[FoldEdge] {Loc.Get("image.converted", frame.Width, frame.Height, sent)}");
     return frame;
 }
 
@@ -292,7 +315,12 @@ app.Map("/ws", async context =>
         while (socket.State == WebSocketState.Open)
         {
             var result = await socket.ReceiveAsync(buffer, CancellationToken.None);
-            if (result.MessageType == WebSocketMessageType.Close) break;
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                // 对端主动关闭：立刻从活动列表移除，后续推送不会再计入该连接
+                clients.TryRemove(id, out _);
+                break;
+            }
             sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
             if (result.EndOfMessage)
             {
@@ -302,8 +330,9 @@ app.Map("/ws", async context =>
             }
         }
     }
-    catch (Exception ex) when (ex is WebSocketException or IOException or OperationCanceledException)
+    catch (Exception ex)
     {
+        clients.TryRemove(id, out _);
         Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.error", ex.Message)}");
     }
     finally
@@ -320,7 +349,7 @@ app.MapGet("/api/status", () => Results.Ok(new
     service = "FoldEdge",
     listen = "127.0.0.1:9000",
     uptimeSeconds = (long)(DateTime.UtcNow - startTime).TotalSeconds,
-    clients = clients.Count,
+    clients = CountAliveClients(),
     modules = Directory.GetFiles(modulesDir, "*.fdll").Select(Path.GetFileName).ToArray()
 }));
 
@@ -331,7 +360,7 @@ app.MapPost("/api/trigger/{moduleName}", async (string moduleName) =>
     if (error != null)
         return Results.NotFound(new { error = $"module '{moduleName}': {error}" });
 
-    return Results.Ok(new { sent = true, module = moduleName, clients = clients.Count });
+    return Results.Ok(new { sent = true, module = moduleName, clients = CountAliveClients() });
 });
 
 // ---- POST /api/image：测试接口 ----
@@ -349,7 +378,7 @@ app.MapPost("/api/image", async (HttpContext context) =>
         return Results.Ok(new
         {
             sent = true,
-            clients = clients.Count,
+            clients = CountAliveClients(),
             width = frame.Width,
             height = frame.Height,
             frames = frame.Frames

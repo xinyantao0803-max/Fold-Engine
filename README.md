@@ -13,6 +13,20 @@
 
 ---
 
+## Security & Anti-Cheat
+
+FoldClient is a **passive, ECDSA-authenticated media renderer**:
+
+- Only media commands signed by FoldEdge's ECDSA P-256 private key are rendered; forged, expired (>3s) or replayed commands are dropped.
+- It does **not** read game memory, entity coordinates, player data or gameplay logic. Every image/video/audio/subtitle is a string explicitly provided by the server.
+- It does **not** modify the game executable and does **not** bypass any anti-cheat mechanism.
+
+**Honest scope:** this makes unauthorized media injection impractical, but it does **not** make a modified client incapable of ESP or other cheats — no client-side plugin can guarantee that, and we do not claim it. What we guarantee is that **this plugin's own attack surface is UI rendering only**.
+
+**EULA:** FoldClient is a UI-only renderer that does not alter gameplay. Server owners are solely responsible for the content they upload, distribute or display.
+
+---
+
 ## 1. 架构
 
 Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**。它把「内容（.fdll 模块）」「调度（时间轴）」与「渲染（客户端）」彻底解耦。
@@ -26,7 +40,7 @@ Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**�
 │        │                                                             │
 │        ├─ manifest.json   ──► tags → 合规标签                        │
 │        ├─ timeline.json   ──► 事件时间轴                             │
-│        └─ assets/         ──► 图片解码 / 像素降维 (ImageSharp)        │
+│        └─ assets/         ──► 模块解析 / 媒体签名 (ECDSA)             │
 │                                                                      │
 │   HTTP API  ── /api/status · /api/trigger/{module} · /api/image       │
 └───────────────────────────────┬──────────────────────────────────────┘
@@ -62,8 +76,8 @@ Fold 不是一个插件，而是**由三个进程/层组成的一套运行时**�
 | **模块化内容** | `.fdll` 是自包含 ZIP 包（manifest / timeline / subtitles / assets），可独立分发 |
 | **完整时间轴动作** | `SHOW_TEXT` / `SHOW_IMAGE` / `PLAY_VIDEO` / `PLAY_AUDIO` / `CHANGE_ROLE` / `SPAWN_ITEM` / `CONTROL_DOOR` / `CLEAR` |
 | **服务端游戏动作** | `CHANGE_ROLE` / `SPAWN_ITEM` / `CONTROL_DOOR` 直接调用 LabAPI 原生包装器，无需客户端装模组 |
-| **服务端全局音频** | `PLAY_AUDIO` 用 LabAPI `SpeakerToy` 播放非空间音效，WAV 自动重采样到 48 kHz |
-| **真实图片渲染** | 服务端不接触图片：FoldEdge 用 ImageSharp 解码并降维为像素矩阵，插件纯渲染 |
+| **服务端全局音频** | `PLAY_AUDIO_SERVER` 用 LabAPI `SpeakerToy` 播放非空间音效，WAV 自动重采样到 48 kHz |
+| **真实图片渲染** | 服务端只下发 `[FOLD_IMG]` 标记，客户端全屏渲染；服务端不再拼接任何字符画 |
 | **全屏视频** | FoldClient 用 `VideoPlayer` + `RenderTexture` 播放 MP4/WebM，带原声，F9 急停（Mono 与 IL2CPP 双版本） |
 | **客户端音频 / 字幕** | `[FOLD_AUDIO]` 走 `UnityWebRequestMultimedia` 2D 播放，`[FOLD_TEXT]` 用 TMP 在媒体下方渲染字幕 |
 | **媒体指令验签** | FoldEdge 用 ECDSA P-256 私钥签名，FoldClient 内置公钥验签，拒绝伪造、超过 3 秒或重放的指令 |
@@ -192,7 +206,7 @@ demo.fdll  (ZIP)
 | --- | --- | --- |
 | `GET` | `/api/status` | 运行状态、在线客户端数、已加载模块列表 |
 | `POST` | `/api/trigger/{module}` | 读取 `Modules/{module}.fdll`，下发 manifest + timeline |
-| `POST` | `/api/image` | 图片 URL（或 `test` / `smiley`）→ 像素矩阵 → 推送给插件 |
+| `POST` | `/api/image` | 图片 URL（或 `test` / `smiley`）→ 像素矩阵（调试 API，客户端不再消费） |
 | `GET` | `/ws` | WebSocket 接入点（FoldEngine 长连接） |
 
 ```bash
@@ -224,7 +238,7 @@ curl -X POST http://127.0.0.1:9000/api/image ^
 │   └── Loc.cs         # 多语言
 ├── FoldEngine/        # 服务端插件（LabAPI 1.1.7 / net48）
 │   ├── FoldCore.cs        # 插件入口 + fold 指令 + 合规标签
-│   ├── FoldUIManager.cs   # 时间轴调度 + 像素帧渲染 + 动作分发
+│   ├── FoldUIManager.cs   # 时间轴调度 + 媒体标记下发（无字符画）
 │   ├── ActionExecutor.cs  # PLAY_AUDIO / CHANGE_ROLE / SPAWN_ITEM / CONTROL_DOOR
 │   ├── FoldEdgeClient.cs  # WebSocket 客户端 + 指令处理
 │   ├── FoldCrypto.cs      # AES-256-CBC 解密（与主程序同密钥）
