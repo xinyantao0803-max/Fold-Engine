@@ -206,8 +206,7 @@ fold image http://127.0.0.1:9000/Assets/your-image.png
 ## 6. 构建
 
 > **编译前置**：`FoldEngine` 需要服务端提供的引用程序集：  
-> - 将 `LabAPI.dll` 放到仓库根目录  
-> - 将 `Assembly-CSharp.dll`、`CommandSystem.Core.dll`、`Mirror.dll`、`UnityEngine.CoreModule.dll` 放到 `FoldEngine/libs/`  
+> - 将 `LabAPI.dll`、`Assembly-CSharp.dll`、`CommandSystem.Core.dll`、`Mirror.dll`、`UnityEngine.CoreModule.dll` 放到 `FoldEngine/libs/`  
 > 以上文件均被 `.gitignore` 排除，不随仓库分发。
 
 ```powershell

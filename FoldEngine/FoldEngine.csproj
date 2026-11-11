@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="LabAPI">
-      <HintPath>..\LabAPI.dll</HintPath>
+      <HintPath>libs\LabAPI.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">
