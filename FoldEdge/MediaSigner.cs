@@ -31,7 +31,11 @@ namespace FoldEdge
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
 
-        /// <summary>当前公钥（SPKI PEM），需要与 FoldClient 中硬编码的一致。</summary>
+        /// <summary>当前公钥（SPKI Base64），通过 WebSocket 动态下发给客户端。</summary>
+        public static string PublicKeyBase64 =>
+            Convert.ToBase64String(SigningKey.ExportSubjectPublicKeyInfo());
+
+        /// <summary>当前公钥（SPKI PEM），便于人工核对。</summary>
         public static string PublicKeyPem => SigningKey.ExportSubjectPublicKeyInfoPem();
 
         /// <summary>启动时调用，确保密钥已生成并输出公钥。</summary>

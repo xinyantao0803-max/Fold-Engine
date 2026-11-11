@@ -1,10 +1,28 @@
+# build artifacts
 bin/
 obj/
+dist/
+build*/
+TestResults/
+.vs/
+
+# third-party binaries / local plugins
 libs/
-keys/
-*.user
+LabAPI.dll
 Modules/
+SCP Secret Laboratory/
+
+# secrets and runtime data (never commit)
+keys/
+FoldEdge/keys/
 FoldEdge/Assets/
 FoldEdge/Media/
-SCP Secret Laboratory/
-LabAPI.dll
+
+# logs and local captures
+*.log
+.screenshots/
+tests/**/first_frame.*
+
+# IDE
+*.user
+*.suo

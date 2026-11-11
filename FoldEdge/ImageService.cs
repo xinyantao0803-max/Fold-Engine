@@ -1,8 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using SkiaSharp;
 
 namespace FoldEdge;
 
@@ -25,7 +23,7 @@ public sealed class PixelJson
 
 /// <summary>
 /// 图片服务：从 CDN 下载全格式图片（PNG/JPG/WebP/GIF 等），
-/// 解码并等比缩小为低分辨率颜色矩阵（.NET 8 + SixLabors.ImageSharp）。
+/// 解码并等比缩小为低分辨率颜色矩阵（.NET 8 + SkiaSharp，MIT）。
 /// </summary>
 public static class ImageService
 {
@@ -46,54 +44,47 @@ public static class ImageService
             throw new InvalidDataException($"响应不是图片 (Content-Type: {contentType})，前 50 字符: {snippet}");
         }
 
-        using var image = Image.Load<Rgba32>(data);
+        using var bitmap = SKBitmap.Decode(data)
+            ?? throw new InvalidDataException("图片解码失败");
 
         // 等比缩小（只缩小不放大）
-        double scale = Math.Min((double)maxWidth / image.Width, (double)maxHeight / image.Height);
+        double scale = Math.Min((double)maxWidth / bitmap.Width, (double)maxHeight / bitmap.Height);
         if (scale > 1.0) scale = 1.0;
-        int w = Math.Max(1, (int)(image.Width * scale));
-        int h = Math.Max(1, (int)(image.Height * scale));
-        image.Mutate(x => x.Resize(w, h));
+        int w = Math.Max(1, (int)(bitmap.Width * scale));
+        int h = Math.Max(1, (int)(bitmap.Height * scale));
+
+        using var resized = bitmap.Resize(
+            new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Unpremul),
+            SKFilterQuality.High) ?? throw new InvalidDataException("图片缩放失败");
 
         var frame = new ImageFrame { Width = w, Height = h };
-        image.ProcessPixelRows(accessor =>
+        for (int y = 0; y < h; y++)
         {
-            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
             {
-                var row = accessor.GetRowSpan(y);
-                for (int x = 0; x < w; x++)
-                {
-                    var p = row[x];
-                    frame.Frames.Add(new PixelJson { R = p.R, G = p.G, B = p.B, A = p.A });
-                }
+                SKColor p = resized.GetPixel(x, y);
+                frame.Frames.Add(new PixelJson { R = p.Red, G = p.Green, B = p.Blue, A = p.Alpha });
             }
-        });
+        }
+
         return frame;
     }
 
     /// <summary>本地生成渐变测试图（纯内存生成，零网络依赖，绝对稳定）。</summary>
     public static ImageFrame GenerateTestFrame(int width = 8, int height = 6)
     {
-        using var image = new Image<Rgba32>(width, height);
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                image[x, y] = new Rgba32(
-                    (byte)(x * 255 / Math.Max(1, width - 1)),
-                    (byte)(y * 255 / Math.Max(1, height - 1)),
-                    (byte)((x + y) * 255 / Math.Max(1, width + height - 2)),
-                    255);
-            }
-        }
-
         var frame = new ImageFrame { Width = width, Height = height };
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                var p = image[x, y];
-                frame.Frames.Add(new PixelJson { R = p.R, G = p.G, B = p.B, A = p.A });
+                frame.Frames.Add(new PixelJson
+                {
+                    R = x * 255 / Math.Max(1, width - 1),
+                    G = y * 255 / Math.Max(1, height - 1),
+                    B = (x + y) * 255 / Math.Max(1, width + height - 2),
+                    A = 255
+                });
             }
         }
         return frame;

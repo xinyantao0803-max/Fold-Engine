@@ -223,6 +223,16 @@ async Task HandleClientMessage(string msg)
         if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
         var type = typeEl.GetString();
 
+        if (type == "get_public_key")
+        {
+            await BroadcastAsync(JsonSerializer.Serialize(new
+            {
+                type = "public-key",
+                publicKey = MediaSigner.PublicKeyBase64
+            }, jsonOpts));
+            return;
+        }
+
         if (type == "image-request" &&
             doc.RootElement.TryGetProperty("url", out var urlEl) &&
             !string.IsNullOrEmpty(urlEl.GetString()))
@@ -335,6 +345,18 @@ app.Map("/ws", async context =>
     var id = Guid.NewGuid();
     clients[id] = socket;
     Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.connected", id)}");
+
+    // 握手后立即下发公钥，客户端据此动态初始化验签器。
+    var keyPayload = JsonSerializer.Serialize(new
+    {
+        type = "public-key",
+        publicKey = MediaSigner.PublicKeyBase64
+    }, jsonOpts);
+    await socket.SendAsync(
+        Encoding.UTF8.GetBytes(keyPayload),
+        WebSocketMessageType.Text,
+        true,
+        CancellationToken.None);
 
     var buffer = new byte[16384];
     var sb = new StringBuilder();
