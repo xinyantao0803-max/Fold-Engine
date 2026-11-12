@@ -18,7 +18,7 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 [![Native](https://img.shields.io/badge/native-Unity%20C%23%20module-22d3ee)](#)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](#license)
 
-文档中心：https://xinyantao0803-max.github.io/Fold-Engine/ · 官方审查指南：[NW-REVIEW.md](NW-REVIEW.md)
+文档中心：https://xinyantao0803-max.github.io/Fold-Engine/ · 官方审查指南：[NW-REVIEW.md](NW-REVIEW.md) · 发布校验：[Release-v1.4.0.md](Release-v1.4.0.md)
 
 ---
 
