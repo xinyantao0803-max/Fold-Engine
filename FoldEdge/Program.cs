@@ -25,6 +25,9 @@ var builder = WebApplication.CreateBuilder(args);
 var listenUrl = builder.Configuration["ListenUrl"] ?? "http://127.0.0.1:9000";
 builder.WebHost.UseUrls(listenUrl);
 
+// 子进程控制台使用系统 OEM 代码页输出（中文 Windows 为 GBK），需要注册代码页编码提供程序。
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
 const string FoldVersion = "V15";
 
 var app = builder.Build();

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -25,6 +26,12 @@ public sealed class GameServerManager : IDisposable
 {
     private const uint JobObjectLimitKillOnJobClose = 0x2000;
     private const int JobObjectExtendedLimitInformationClass = 9;
+
+    /// <summary>
+    /// 子进程控制台使用系统 OEM 代码页：中文 Windows 为 GBK(936)，Linux 为 UTF-8。
+    /// </summary>
+    private static readonly Encoding ConsoleEncoding =
+        Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage);
 
     private readonly GameServerOptions _options;
     private readonly LogService _log;
@@ -217,8 +224,8 @@ public sealed class GameServerManager : IDisposable
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
+                StandardOutputEncoding = ConsoleEncoding,
+                StandardErrorEncoding = ConsoleEncoding
             };
 
             var process = new Process

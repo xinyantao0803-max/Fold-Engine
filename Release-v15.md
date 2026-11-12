@@ -32,11 +32,11 @@ dotnet build .\FoldNativeClient\FoldNativeClient.csproj -c Release -warnaserror 
 
 | 产物 | 大小 (bytes) | SHA-256 |
 | --- | --- | --- |
-| `FoldEdge/bin/Release/net8.0/FoldEdge.dll` | 165,376 | `8be6ee0fc25137d76bdcca6200f81297a38c3488e58a9fdf448acd56cfff1aab` |
-| `FoldEdge/bin/Release/net8.0/FoldEdge.exe` | 151,552 | `99222d7e2b2f92cf9675cf8c3efe4fa253094cba7b7bb7541d3c839ef93e5429` |
-| `FoldEngine/bin/Release/net48/FoldEngine.dll` | 39,936 | `7c3493dc86f7eacf3af1de041d5f4a0ffe6e5b82a5b351451c62d7906bfa0d43` |
-| `FoldNativeClient/bin/Release/netstandard2.1/FoldNativeClient.dll` | 19,968 | `d4c43b2b529b0d022fa060be58b6f88891df5168e501f57bd7c6666a479a6525` |
-| `dist/V15/FoldPacker/FoldPacker.exe` | 151,552 | `752b7a440ab24964901b6cd207af4c87de9d510b71715574e758580a0f7b8438` |
+| `FoldEdge/bin/Release/net8.0/FoldEdge.dll` | 165,888 | `a21763767439a614c1f8ddf758c42497ace1d60c8233435b6dab2fb174b90c32` |
+| `FoldEdge/bin/Release/net8.0/FoldEdge.exe` | 151,552 | `0f8f828e6537969eaa98c2b292cadcb184ac927f864254fcbd6f0b07e5f55ae9` |
+| `FoldEngine/bin/Release/net48/FoldEngine.dll` | 39,936 | `68426fc0090af3582e7854aa72e2db870dc019c7f134ddfad1357f20bdca0d72` |
+| `FoldNativeClient/bin/Release/netstandard2.1/FoldNativeClient.dll` | 19,968 | `cfa8411a04f86b1e007db535928f287d2c72fde91c70471bab60b189d277ed4c` |
+| `dist/V15/FoldPacker/FoldPacker.exe` | 151,552 | `95eded41118d70d709aedefb41b56157cbb9d1cd1cdfa5d82228b07913f2136c` |
 
 > 哈希随源码或 SDK 版本变化。若你复算结果不同，请先确认 SDK 为 `8.0.428` 且使用 `Release` 配置。
 
