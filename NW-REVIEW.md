@@ -5,7 +5,7 @@ and what we are asking for.**
 
 Repository: https://github.com/xinyantao0803-max/Fold-Engine  
 Documentation site: https://xinyantao0803-max.github.io/Fold-Engine/  
-Version reviewed: **v1.3.0**
+Version reviewed: **v1.4.0**
 
 ---
 
@@ -172,7 +172,7 @@ This track exists so server owners can use Fold today, before any native integra
 | Area | Deliverable |
 | --- | --- |
 | Runtime | FH (`FoldEdge`, .NET 8), FE (`FoldEngine`, LabAPI), FVP (`FoldClient`, WPF) |
-| Enterprise control plane | `/dashboard` SPA, JWT + RBAC, PBKDF2 hashing, bilingual log center, time-limited access, VPN credential lifecycle |
+| Enterprise control plane | `/dashboard` SPA, JWT + RBAC, PBKDF2 hashing, bilingual log center, time-limited access, VPN credential lifecycle, silent SCP:SL process lifecycle |
 | Native integration | `FoldNativeClient/` — Unity C# module (this release) |
 | Deployment | [`start.sh`](start.sh) + [`FoldEdge/Dockerfile`](FoldEdge/Dockerfile) + [`docker-compose.yml`](docker-compose.yml) with `network_mode: "host"` |
 | Authoring | [`tools/FoldPacker`](tools/FoldPacker) — `.fdll` packer with AES container and detached ECDSA signature |

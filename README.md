@@ -12,7 +12,7 @@ Fold Mod 由三个运行模块组成：**FH（FoldEdge）**、**FE（FoldEngine�
 Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播放指令，也被整理为一份可供官方借鉴的零信任网络扩展方案：见 [docs/nw-security.md](docs/nw-security.md) 与 [给 NW 的邮件草稿](docs/nw-email-draft.md)。
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](#)
-[![Version](https://img.shields.io/badge/version-v1.3-22d3ee)](#)
+[![Version](https://img.shields.io/badge/version-v1.4-22d3ee)](#)
 [![Web UI](https://img.shields.io/badge/web%20ui-%2Fdashboard-8b5cf6)](#)
 [![Client](https://img.shields.io/badge/client-WPF%20%2B%20Media%20Foundation-4b8bbe)](#)
 [![Native](https://img.shields.io/badge/native-Unity%20C%23%20module-22d3ee)](#)
@@ -64,9 +64,9 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 
 ---
 
-## 🛡 v1.3 企业控制平面 (Enterprise Control Plane)
+## 🛡 v1.3–v1.4 企业控制平面 (Enterprise Control Plane)
 
-> **FoldEdge 现在不只是黑框框：内置暗黑赛博朋克 Web 管理面板、RBAC、统一日志中心、限时权限与 VPN 凭证生命周期。**
+> **FoldEdge 现在不只是黑框框：内置暗黑赛博朋克 Web 管理面板、RBAC、统一日志中心、限时权限、VPN 凭证与 SCP:SL 进程生命周期管理。**
 
 - **Web UI**：`/dashboard`，原生 JS + 内联 CSS，**零 CDN 依赖**；登录、初始化、加载动画、错误 Toast 全链路兜底，不会白屏
 - **首次初始化**：强制创建 Owner 账号；密码使用 **PBKDF2-SHA256（120,000 次迭代 + 随机盐）**
@@ -80,6 +80,20 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 > **VPN 说明**：FoldEdge 负责凭证签发、校验与吊销；实际隧道由服主配置的 L2TP / IKEv2 网关承载，FoldEdge 不代理流量。
 
 入口文件：[`FoldEdge/wwwroot/dashboard.html`](FoldEdge/wwwroot/dashboard.html) · 认证与 RBAC：[`FoldEdge/Security/`](FoldEdge/Security/) · 日志：[`FoldEdge/Logging/LogService.cs`](FoldEdge/Logging/LogService.cs)
+
+### 🖥 服务器进程控制 (v1.4)
+
+- **顶部状态**：绿色 `RUNNING` / 红色 `STOPPED`，面向 `SCP:SL` 专用服务器
+- **三个按钮**：**启动服务器 / 关闭服务器 / 重启服务器**，直连 `/api/server/start|stop|restart`
+- **静默后台运行**：`UseShellExecute=false` + `CreateNoWindow=true` + `WindowStyle=Hidden`，不弹任何黑框
+- **日志接管**：SCP:SL 的 stdout/stderr 以 `[SCPSL]` 前缀实时合并进统一日志中心
+- **防孤儿进程**：Windows Job Object `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，FoldEdge 退出或崩溃时自动清理服务器及其子进程
+- **自动接管**：发现已有 `SCPSL` / `LocalAdmin` 进程时，先优雅关闭再静默拉起（可配置 `TakeoverExisting`）
+- **可配置**：`GameServer:ExecutablePath`、`Arguments`、`AutoStart`、`GracefulStopSeconds`、`RestartDelaySeconds`
+
+实现：[`FoldEdge/Server/GameServerManager.cs`](FoldEdge/Server/GameServerManager.cs) · 配置示例见 [`FoldEdge/appsettings.json`](FoldEdge/appsettings.json)
+
+> 本仓库默认自动探测 `LocalAdmin.exe` 并以端口 `2000` 启动（对应现有服务器配置）。其他环境请修改 `GameServer:ExecutablePath` 与 `GameServer:Arguments`；Docker Linux 容器无法拉起 Windows 的 SCP:SL，进程控制只在原生 Windows FH 上生效。
 
 ---
 
@@ -375,6 +389,7 @@ docker compose up -d --build
 - 用户管理：Owner / Admin / Viewer、SteamID 绑定、限时有效期、VPN 凭证与 Windows 脚本下载
 - 统一日志中心：实时、按天切割、保留 7 天、中英双语
 - 配置中心：限流开关与日志级别，保存后持久化并广播给在线 FE
+- 服务器进程控制：启动 / 关闭 / 重启 SCP:SL，静默运行并捕获控制台日志
 
 也可以直接拉取已构建镜像：
 
@@ -385,7 +400,7 @@ docker run -d --name foldedge --network host --restart always \
   -v "$PWD/FoldEdge/Assets:/app/Assets" \
   -v "$PWD/FoldEdge/Media:/app/Media" \
   -v "$PWD/FoldEdge/Data:/app/Data" \
-  ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
+  ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
 ```
 
 > **镜像只包含服务器端 FH。** FVP 是 Windows 原生 WPF 程序，不能放进 Docker。  
@@ -461,7 +476,7 @@ docker compose up -d --build
 docker compose logs -f foldedge
 ```
 
-镜像标签：`ghcr.io/xinyantao0803-max/fold-engine:v1.3.0`
+镜像标签：`ghcr.io/xinyantao0803-max/fold-engine:v1.4.0`
 
 关键配置：
 
@@ -478,11 +493,11 @@ docker compose logs -f foldedge
 手动构建并推送 GHCR：
 
 ```bash
-docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.3.0 .
-docker push ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
+docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.4.0 .
+docker push ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
 ```
 
-> 推送任意 `v*` 标签时，[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 会自动构建并推送同标签镜像与 `latest`。`v1.3.0` 镜像通过该流程发布。
+> 推送任意 `v*` 标签时，[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 会自动构建并推送同标签镜像与 `latest`。`v1.4.0` 镜像通过该流程发布。
 
 详细说明见 [docs/docker.md](docs/docker.md)。
 

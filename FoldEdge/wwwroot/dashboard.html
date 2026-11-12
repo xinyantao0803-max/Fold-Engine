@@ -279,6 +279,30 @@
   .log-level.Error { color: var(--red); }
   .log-text { color: #cfe0ef; line-height: 1.5; word-break: break-word; }
 
+  /* ---------------- server control ---------------- */
+  .server-status { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .server-badge {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 9px 14px; border-radius: 10px; border: 1px solid var(--line-soft);
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em;
+  }
+  .server-badge.running { border-color: rgba(163, 230, 53, 0.4); color: var(--lime); background: rgba(163, 230, 53, 0.06); }
+  .server-badge.stopped { border-color: rgba(248, 113, 113, 0.35); color: var(--red); background: rgba(248, 113, 113, 0.06); }
+  .server-meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 11px; }
+  .server-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .server-btn {
+    padding: 15px 12px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    border: 1px solid var(--line-soft); background: rgba(255,255,255,0.03);
+  }
+  .server-btn.start { border-color: rgba(163, 230, 53, 0.35); color: var(--lime); }
+  .server-btn.start:hover { background: rgba(163, 230, 53, 0.1); border-color: var(--lime); }
+  .server-btn.stop { border-color: rgba(248, 113, 113, 0.35); color: var(--red); }
+  .server-btn.stop:hover { background: rgba(248, 113, 113, 0.1); border-color: var(--red); }
+  .server-btn.restart { border-color: rgba(251, 191, 36, 0.35); color: var(--amber); }
+  .server-btn.restart:hover { background: rgba(251, 191, 36, 0.1); border-color: var(--amber); }
+  .server-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  @media (max-width: 640px) { .server-actions { grid-template-columns: 1fr; } }
+
   /* ---------------- modal ---------------- */
   .modal-backdrop {
     position: fixed; inset: 0; z-index: 250;
@@ -392,7 +416,7 @@
       <button class="nav-item" data-page="settings"><span class="glyph">⚙</span><span data-i18n="nav.settings">设置</span></button>
     </nav>
     <div class="side-foot">
-      <div>v1.3.0 · ZERO-TRUST</div>
+      <div>v1.4.0 · ZERO-TRUST</div>
       <div id="sideListen">ws://127.0.0.1:9000/ws</div>
     </div>
   </aside>
@@ -401,6 +425,7 @@
     <header class="topbar">
       <h2 id="pageTitle">总览</h2>
       <div class="top-right">
+        <span class="pill"><span class="dot" id="gameDot"></span><span id="gameText">SCP:SL STOPPED</span></span>
         <span class="pill"><span class="dot" id="healthDot"></span><span id="healthText">OFFLINE</span></span>
         <button class="lang-btn" data-lang="zh">中文</button>
         <button class="lang-btn" data-lang="en">EN</button>
@@ -415,6 +440,32 @@
     <div class="content">
       <!-- dashboard -->
       <section id="page-dashboard" class="page">
+        <div class="panel">
+          <div class="panel-head">
+            <h3 data-i18n="server.title">SCP:SL 服务器控制</h3>
+            <span class="hint" id="serverSource">—</span>
+          </div>
+          <div class="panel-body">
+            <div class="server-status">
+              <div class="server-badge stopped" id="serverBadge">
+                <span class="dot" id="serverDot"></span>
+                <span id="serverState">STOPPED</span>
+              </div>
+              <div class="server-meta">
+                <div><span class="muted">PID</span> <span class="mono" id="serverPid">—</span></div>
+                <div><span class="muted" data-i18n="server.uptime">运行时长</span> <span class="mono" id="serverUptime">—</span></div>
+                <div><span class="muted" data-i18n="server.exe">可执行文件</span> <span class="mono" id="serverExe">—</span></div>
+              </div>
+            </div>
+            <div class="server-actions">
+              <button class="btn server-btn start" id="serverStartBtn" data-i18n="server.start">启动服务器</button>
+              <button class="btn server-btn stop" id="serverStopBtn" data-i18n="server.stop">关闭服务器</button>
+              <button class="btn server-btn restart" id="serverRestartBtn" data-i18n="server.restart">重启服务器</button>
+            </div>
+            <div class="hint" id="serverHint" style="margin-top:10px" data-i18n="server.hint">静默后台运行，stdout/stderr 合并到日志中心。</div>
+          </div>
+        </div>
+
         <div class="stats">
           <div class="stat"><div class="label" data-i18n="stat.fe">FE NODES</div><div class="value" id="statFe">0</div><div class="sub" data-i18n="stat.fe.sub">游戏服务端插件在线</div></div>
           <div class="stat violet"><div class="label" data-i18n="stat.fvp">FVP CLIENTS</div><div class="value" id="statFvp">0</div><div class="sub" data-i18n="stat.fvp.sub">外部渲染客户端在线</div></div>
@@ -550,6 +601,9 @@
               <div class="k">VPN SERVER</div><div class="v" id="sysVpnServer">—</div>
               <div class="k">VPN TUNNEL</div><div class="v" id="sysVpnTunnel">—</div>
               <div class="k">FE / FVP</div><div class="v" id="sysNodes">—</div>
+              <div class="k">GAME SERVER</div><div class="v" id="sysGameServer">—</div>
+              <div class="k">GAME PID</div><div class="v" id="sysGamePid">—</div>
+              <div class="k">LAST EXIT</div><div class="v" id="sysGameExit">—</div>
             </div>
             <p class="hint" data-i18n="settings.vpnHint">VPN 凭证由 FoldEdge 签发与吊销；实际隧道由服主配置的 L2TP / IKEv2 网关承载。</p>
           </div>
@@ -607,6 +661,16 @@ const I18N = {
     "settings.logLevel": "日志级别", "settings.logLevel.desc": "FoldEdge 控制台输出级别",
     "settings.save": "保存配置", "settings.readonly": "仅 Owner 可以修改配置。",
     "settings.system": "系统信息", "settings.vpnHint": "VPN 凭证由 FoldEdge 签发与吊销；实际隧道由服主配置的 L2TP / IKEv2 网关承载。",
+    "server.title": "SCP:SL 服务器控制", "server.start": "启动服务器", "server.stop": "关闭服务器", "server.restart": "重启服务器",
+    "server.running": "RUNNING", "server.stopped": "STOPPED", "server.external": "EXTERNAL",
+    "server.uptime": "运行时长", "server.exe": "可执行文件",
+    "server.hint": "静默后台运行，stdout/stderr 合并到日志中心。",
+    "server.managed": "托管进程", "server.external.source": "外部进程", "server.lastExit": "上次退出码",
+    "server.notConfigured": "未找到 SCPSL.exe / LocalAdmin.exe，请配置 GameServer:ExecutablePath",
+    "toast.serverStarted": "服务器已启动", "toast.serverStopped": "服务器已停止", "toast.serverRestarted": "服务器已重启",
+    "toast.serverAction": "操作完成：{msg}", "err.server": "服务器操作失败：{msg}",
+    "confirm.serverStop": "确认关闭 SCP:SL 服务器？在线玩家会被断开。",
+    "confirm.serverRestart": "确认重启 SCP:SL 服务器？在线玩家会被断开。",
     "toast.loginOk": "登录成功", "toast.setupOk": "Owner 账号已创建", "toast.saved": "配置已保存并广播",
     "toast.triggered": "已下发模块 {name} · 节点 {n}", "toast.created": "账号 {name} 已创建",
     "toast.revoked": "账号 {name} 已吊销", "toast.copied": "已复制到剪贴板",
@@ -659,6 +723,16 @@ const I18N = {
     "settings.logLevel": "Log level", "settings.logLevel.desc": "FoldEdge console output level",
     "settings.save": "Save config", "settings.readonly": "Only the Owner can change configuration.",
     "settings.system": "System info", "settings.vpnHint": "FoldEdge issues and revokes VPN credentials; the tunnel is hosted by the owner's L2TP / IKEv2 gateway.",
+    "server.title": "SCP:SL server control", "server.start": "Start server", "server.stop": "Stop server", "server.restart": "Restart server",
+    "server.running": "RUNNING", "server.stopped": "STOPPED", "server.external": "EXTERNAL",
+    "server.uptime": "Uptime", "server.exe": "Executable",
+    "server.hint": "Runs hidden in the background; stdout/stderr is merged into the log center.",
+    "server.managed": "Managed process", "server.external.source": "External process", "server.lastExit": "Last exit",
+    "server.notConfigured": "SCPSL.exe / LocalAdmin.exe not found. Set GameServer:ExecutablePath.",
+    "toast.serverStarted": "Server started", "toast.serverStopped": "Server stopped", "toast.serverRestarted": "Server restarted",
+    "toast.serverAction": "Done: {msg}", "err.server": "Server operation failed: {msg}",
+    "confirm.serverStop": "Stop the SCP:SL server? Online players will be disconnected.",
+    "confirm.serverRestart": "Restart the SCP:SL server? Online players will be disconnected.",
     "toast.loginOk": "Signed in", "toast.setupOk": "Owner account created", "toast.saved": "Config saved and broadcast",
     "toast.triggered": "Module {name} sent · nodes {n}", "toast.created": "Account {name} created",
     "toast.revoked": "Account {name} revoked", "toast.copied": "Copied to clipboard",
@@ -681,6 +755,7 @@ const state = {
   user: null,
   page: "dashboard",
   status: null,
+  game: null,
   modules: [],
   users: [],
   logs: [],
@@ -748,6 +823,7 @@ function applyLang() {
     renderUsers();
     renderLogs();
     renderSettings();
+    if (state.game) renderGameStatus();
   }
 }
 
@@ -827,6 +903,9 @@ function showApp() {
   const ownerOrAdmin = state.user && (state.user.role === "Owner" || state.user.role === "Admin");
   $("quickStop").disabled = !ownerOrAdmin;
   $("quickJumpBtn").disabled = !ownerOrAdmin;
+  $("serverStartBtn").disabled = true;
+  $("serverStopBtn").disabled = true;
+  $("serverRestartBtn").disabled = true;
   $("saveConfigBtn").disabled = !state.user || state.user.role !== "Owner";
   $("rateLimitToggle").disabled = !state.user || state.user.role !== "Owner";
   $("logLevelSelect").disabled = !state.user || state.user.role !== "Owner";
@@ -861,13 +940,14 @@ function clearTimers() {
 function startTimers() {
   clearTimers();
   state.timers.push(setInterval(loadStatus, 3000));
+  state.timers.push(setInterval(loadGameStatus, 3000));
   state.timers.push(setInterval(loadModules, 5000));
   state.timers.push(setInterval(loadLogs, 1500));
   state.timers.push(setInterval(() => {
     if (state.user && state.user.role === "Owner") loadUsers();
   }, 8000));
   state.timers.push(setInterval(updateCountdowns, 1000));
-  loadStatus(); loadModules(); loadLogs();
+  loadStatus(); loadGameStatus(); loadModules(); loadLogs();
   if (state.user && state.user.role === "Owner") loadUsers();
 }
 
@@ -908,6 +988,74 @@ async function loadModules() {
     state.modules = d.modules || [];
     renderModules();
   } catch { /* toast already handled for auth */ }
+}
+
+async function loadGameStatus() {
+  if (!state.token) return;
+  try {
+    const g = await api("/api/server/status");
+    state.game = g;
+    renderGameStatus();
+  } catch { /* handled by api() */ }
+}
+
+function renderGameStatus() {
+  const g = state.game;
+  if (!g) return;
+
+  const running = !!g.running;
+  const external = running && !g.managed;
+  const canOperate = state.user && (state.user.role === "Owner" || state.user.role === "Admin");
+  const stateText = running
+    ? (external ? t("server.external") : t("server.running"))
+    : t("server.stopped");
+
+  $("gameDot").className = "dot " + (running ? "online" : "offline");
+  $("gameText").textContent = "SCP:SL " + stateText;
+
+  $("serverDot").className = "dot " + (running ? "online" : "offline");
+  $("serverBadge").className = "server-badge " + (running ? "running" : "stopped");
+  $("serverState").textContent = stateText;
+  $("serverSource").textContent = running
+    ? (g.managed ? t("server.managed") : t("server.external.source"))
+    : (g.configured ? "" : t("server.notConfigured"));
+  $("serverPid").textContent = g.pid ? String(g.pid) : "—";
+  $("serverUptime").textContent = running && g.uptimeSeconds ? formatUptime(g.uptimeSeconds) : "—";
+  $("serverExe").textContent = g.executable || "—";
+  $("serverExe").title = g.executable || "";
+
+  $("serverStartBtn").disabled = !canOperate || running;
+  $("serverStopBtn").disabled = !canOperate || !running;
+  $("serverRestartBtn").disabled = !canOperate || !running;
+
+  $("sysGameServer").textContent = running
+    ? (g.managed ? "RUNNING (managed)" : "RUNNING (external)")
+    : "STOPPED";
+  $("sysGamePid").textContent = g.pid ? String(g.pid) : "—";
+  $("sysGameExit").textContent = g.lastExitCode == null ? "—" : String(g.lastExitCode);
+}
+
+async function controlServer(action) {
+  if (action === "stop" && !confirm(t("confirm.serverStop"))) return;
+  if (action === "restart" && !confirm(t("confirm.serverRestart"))) return;
+
+  setLoading(true, t("ui.loading"));
+  try {
+    const r = await api("/api/server/" + action, { method: "POST" });
+    if (!r.ok) throw new Error(r.message || "failed");
+    toast("success",
+      action === "start" ? t("toast.serverStarted")
+        : action === "stop" ? t("toast.serverStopped")
+        : t("toast.serverRestarted"));
+    state.game = r.status;
+    renderGameStatus();
+    loadLogs();
+  } catch (e) {
+    toast("error", t("err.server", { msg: e.message }));
+    loadGameStatus();
+  } finally {
+    setLoading(false);
+  }
 }
 
 function renderModules() {
@@ -1410,6 +1558,9 @@ $("quickJumpBtn").addEventListener("click", () => {
   const s = Number($("quickJump").value || 0);
   postControl("/api/control/jump/" + encodeURIComponent(s));
 });
+$("serverStartBtn").addEventListener("click", () => controlServer("start"));
+$("serverStopBtn").addEventListener("click", () => controlServer("stop"));
+$("serverRestartBtn").addEventListener("click", () => controlServer("restart"));
 $("moduleSearch").addEventListener("input", renderModules);
 $("logAuto").addEventListener("change", () => { state.logAuto = $("logAuto").checked; });
 $("logClear").addEventListener("click", () => { state.logs = []; renderLogs(); });

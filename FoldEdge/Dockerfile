@@ -32,6 +32,7 @@ RUN mkdir -p /app/Data /app/Modules /app/Assets /app/Media /app/keys
 ENV ListenUrl=http://0.0.0.0:9000 \
     VpnServer=vpn.example.com \
     VpnTunnelType=L2tp \
+    GameServer__AutoStart=false \
     ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_ENVIRONMENT=Production
 

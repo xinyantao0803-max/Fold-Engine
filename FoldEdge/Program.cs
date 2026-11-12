@@ -25,7 +25,7 @@ var builder = WebApplication.CreateBuilder(args);
 var listenUrl = builder.Configuration["ListenUrl"] ?? "http://127.0.0.1:9000";
 builder.WebHost.UseUrls(listenUrl);
 
-const string FoldVersion = "1.3.0";
+const string FoldVersion = "1.4.0";
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -59,6 +59,8 @@ var jwtService = new JwtService(Path.Combine(dataDir, "jwt-secret.b64"));
 var vpnService = new VpnService(
     builder.Configuration["VpnServer"] ?? "vpn.example.com",
     builder.Configuration["VpnTunnelType"] ?? "L2tp");
+var gameServerOptions = builder.Configuration.GetSection("GameServer").Get<GameServerOptions>() ?? new GameServerOptions();
+var gameServer = new GameServerManager(gameServerOptions, logService, app.Environment.ContentRootPath);
 
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -637,6 +639,39 @@ app.MapGet("/api/modules", () =>
     return Results.Ok(new { modules });
 });
 
+// ---- SCP:SL 服务器进程生命周期 ----
+app.MapGet("/api/server/status", () => Results.Ok(gameServer.GetStatus()));
+
+app.MapPost("/api/server/start", async (HttpContext context) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
+    var result = await gameServer.StartAsync(current.Username);
+    return Results.Ok(result);
+});
+
+app.MapPost("/api/server/stop", async (HttpContext context) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
+    var result = await gameServer.StopAsync(current.Username);
+    return Results.Ok(result);
+});
+
+app.MapPost("/api/server/restart", async (HttpContext context) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
+    var result = await gameServer.RestartAsync(current.Username);
+    return Results.Ok(result);
+});
+
 // ---- 认证 / 初始化 / 用户 / VPN / 日志 ----
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = FoldVersion }));
 app.MapGet("/api/setup/status", () => Results.Ok(new { initialized = userStore.HasOwner }));
@@ -1114,6 +1149,10 @@ app.Lifetime.ApplicationStopping.Register(() =>
 var expiryService = new ExpiryService(userStore, logService, json => BroadcastAsync(json));
 expiryService.Start();
 app.Lifetime.ApplicationStopping.Register(expiryService.Stop);
+
+// ---- SCP:SL 进程：启动时自动接管/静默启动，退出时确保清理 ----
+app.Lifetime.ApplicationStarted.Register(gameServer.AutoStartIfConfigured);
+app.Lifetime.ApplicationStopping.Register(gameServer.Dispose);
 
 logService.Write("Info", $"FoldEdge v{FoldVersion} 已启动", $"FoldEdge v{FoldVersion} started");
 app.Run();

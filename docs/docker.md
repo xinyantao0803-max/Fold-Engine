@@ -1,6 +1,6 @@
 # Docker Deployment
 
-## One-command FH deployment (v1.3.0)
+## One-command FH deployment (v1.4.0)
 
 From the repository root:
 
@@ -27,14 +27,14 @@ The first visit forces Owner initialisation (PBKDF2 password hashing).
 Image tag:
 
 ```
-ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
+ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
 ```
 
 Build and push manually:
 
 ```bash
-docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.3.0 .
-docker push ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
+docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.4.0 .
+docker push ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
 ```
 
 Logs:
@@ -77,6 +77,7 @@ The control plane reads `Modules/*.fdll` in real time and can:
 - show online FE / FVP counts and the last telemetry line
 - trigger a module (`POST /api/trigger/{module}` → signed play command over WebSocket)
 - manage users with Owner / Admin / Viewer roles, expiries, SteamID binding, and VPN credentials
+- start, stop, and restart the SCP:SL server, with captured stdout/stderr merged into the log center
 - stream the unified bilingual log center (daily files, 7-day retention)
 - toggle FE rate limiting and change FH log level (`PUT /api/config`)
 
@@ -115,6 +116,13 @@ ws://127.0.0.1:9000/ws
 The WPF client is Windows-native and cannot run in Docker. Each player runs
 `FoldClient.exe` locally with `FoldClient.pub` next to it. See the README section
 "场景三：客户端 FVP".
+
+## Game server process control
+
+The Start / Stop / Restart buttons drive a Windows-native `SCPSL.exe` or
+`LocalAdmin.exe` process. The Linux container cannot launch the Windows server
+binary; for the process lifecycle feature, run FoldEdge natively on the same
+Windows host as the SCP:SL server and configure `GameServer:ExecutablePath`.
 
 ## Security
 

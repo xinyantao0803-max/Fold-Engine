@@ -14,7 +14,7 @@ services:
     build:
       context: .
       dockerfile: FoldEdge/Dockerfile
-    image: ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
+    image: ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
     container_name: foldedge
     network_mode: "host"
     restart: always
@@ -30,6 +30,8 @@ services:
       - ListenUrl=http://0.0.0.0:9000
       - VpnServer=vpn.example.com
       - VpnTunnelType=L2tp
+      # The Linux container cannot launch the Windows SCP:SL server.
+      - GameServer__AutoStart=false
       # Set a gateway token before exposing /api/vpn/verify beyond localhost:
       # - VpnGatewayToken=change-me-before-exposing
       - ASPNETCORE_ENVIRONMENT=Production
