@@ -8,6 +8,7 @@
     <AssemblyName>FoldPacker</AssemblyName>
     <RootNamespace>FoldPacker</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <Version>15.0.0</Version>
   </PropertyGroup>
 
 </Project>

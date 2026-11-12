@@ -18,9 +18,8 @@
 | External dependencies | `UnityEngine.UI`, `UnityEngine.Video`, `UnityEngine.UnityWebRequestTexture` (all built into Unity) |
 | Licence | PFN 1.0, with an irrevocable free commercial grant for Northwood Studios (see root `README.md`) |
 
-This is **not** a standalone program and **not** an overlay. It is the in-engine counterpart of the
-external WPF renderer (`FoldClient/`). Both share the same cryptographic envelope, so a server can
-keep signing exactly the same commands regardless of which client implementation is installed.
+This is **not** a standalone program and **not** an overlay. It is the in-engine client renderer
+for Fold. The server keeps signing the same ECDSA envelope regardless of how the client is built.
 
 ---
 

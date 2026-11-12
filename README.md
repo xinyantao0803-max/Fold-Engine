@@ -4,7 +4,7 @@
 
 **数据驱动的 SCP:SL 媒体与事件引擎。**
 
-Fold Mod 由三个运行模块组成：**FH（FoldEdge）**、**FE（FoldEngine）**、**FVP（FoldClient）**；同时提供可直接合入官方客户端的 **FVP-Native（FoldNativeClient）** 原生模块。
+Fold Mod 由两个运行模块组成：**FH（FoldEdge）** 与 **FE（FoldEngine）**；客户端渲染以可直接合入官方客户端的 **FVP-Native（FoldNativeClient）** 原生模块形式提供。
 它不依赖 BepInEx、不使用 C++ 注入器、不修改游戏内存，也不调用任何游戏内 Unity API。
 
 **Not just a media player, but a Zero-Trust network protocol reference for SCP:SL.**
@@ -12,59 +12,40 @@ Fold Mod 由三个运行模块组成：**FH（FoldEdge）**、**FE（FoldEngine�
 Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播放指令，也被整理为一份可供官方借鉴的零信任网络扩展方案：见 [docs/nw-security.md](docs/nw-security.md) 与 [给 NW 的邮件草稿](docs/nw-email-draft.md)。
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](#)
-[![Version](https://img.shields.io/badge/version-v1.4-22d3ee)](#)
+[![Version](https://img.shields.io/badge/version-V15-22d3ee)](#)
 [![Web UI](https://img.shields.io/badge/web%20ui-%2Fdashboard-8b5cf6)](#)
-[![Client](https://img.shields.io/badge/client-WPF%20%2B%20Media%20Foundation-4b8bbe)](#)
 [![Native](https://img.shields.io/badge/native-Unity%20C%23%20module-22d3ee)](#)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](#license)
 
-文档中心：https://xinyantao0803-max.github.io/Fold-Engine/ · 官方审查指南：[NW-REVIEW.md](NW-REVIEW.md) · 发布校验：[Release-v1.4.0.md](Release-v1.4.0.md)
+文档中心：https://xinyantao0803-max.github.io/Fold-Engine/ · 官方审查指南：[NW-REVIEW.md](NW-REVIEW.md) · 发布校验：[Release-v15.md](Release-v15.md)
 
 ---
 
-## 🌟 两套接入方案 (Two Integration Solutions)
+## 🌟 交付形态 (Delivery)
 
-> **方案 A 现已可用：服主无需修改游戏本体。**  
-> **方案 B 已写入本仓库：Northwood 可直接把源码并入官方客户端。**
+> **外部 WPF 客户端已移除。** 本仓库现在只包含服务端控制平面（FH + FE）与供 Northwood 直接合入的原生模块（FVP-Native）。
 
-### 方案 A：外部独立渲染器 (External Renderer — Zero Injection)
+### 服务端 · FoldEdge + FoldEngine
 
-> **适用场景**：现阶段服主即刻可用，无需修改游戏本体。  
-> **核心特性**：独立的 WPF 进程，通过 Windows MF 原生硬解全屏播放。**SL-AC 绝对安全，绝不碰游戏内存。**  
-> **获取方式**：下载我们的 **FoldClient** 即可使用。
+- **FH（FoldEdge）**：`.NET 8` 常驻服务，负责解包、条件匹配、ECDSA 签名、Web 控制平面与 `/ws` 广播
+- **FE（FoldEngine）**：LabAPI 插件，只上报状态、执行游戏内原生动作、原样转发已签名指令，不持有任何密钥
 
-- **代码位置**：[`FoldClient/`](FoldClient/)
-- **渲染路径**：Media Foundation + DXVA → `WriteableBitmap` → 全屏置顶、鼠标穿透的 WPF 覆盖层
-- **边界**：不注入进程、不加载 BepInEx、不调用任何游戏内 Unity API
+### 客户端 · FoldNativeClient（For NW Studio）
 
-### 方案 B：原生引擎集成代码 (Native Engine Integration — For NW Studio)
+> **专为 Northwood 官方准备。** 这不是外部程序，而是一套**纯正的 C# 原生代码模块**，官方可以直接将源码合并入 SCP:SL 的客户端源码中。
 
-> **适用场景**：专为 Northwood 官方准备的终极形态。**直接随游戏下发与更新。**  
-> **核心特性**：这绝对不是外部程序。这是一套**纯正的 C# 原生代码模块**，官方可以直接将源码合并入 SCP:SL 的客户端源码中。  
-> **渲染方式**：在游戏引擎内部，直接调用 Unity 的最高层 UI `Canvas`（`sortingOrder = 9999`）进行原生强渲染。不仅性能达到极限，而且能完美与游戏内置语音、音频系统融合。  
-> **优势**：玩家不需要开任何外部软件，官方不需要维护额外进程，彻底改变 SCP:SL 的剧情表现力。
+- **渲染方式**：在游戏引擎内部，直接调用 Unity 的最高层 UI `Canvas`（`sortingOrder = 9999`）进行原生强渲染。不仅性能达到极限，而且能完美与游戏内置语音、音频系统融合。
+- **优势**：玩家不需要开任何外部软件，官方不需要维护额外进程，彻底改变 SCP:SL 的剧情表现力。
 
 - **查看原生集成代码**：[`FoldNativeClient/`](FoldNativeClient/)
 - **官方合入指南**：[`NW-REVIEW.md`](NW-REVIEW.md) · [`docs/native-integration.md`](docs/native-integration.md)
 - **渲染路径**：`Canvas` → `RawImage` → `VideoPlayer` + `RenderTexture` / `AudioSource`
 
-### 双轨对照 (At a Glance)
-
-| | 方案 A · External Renderer | 方案 B · Native Integration |
-| --- | --- | --- |
-| 运行形态 | 独立 WPF 进程 | 游戏内 Unity C# 脚本 |
-| 是否修改游戏 | 否 | 是（源码级合入） |
-| 渲染层 | 外部置顶覆盖层 | 引擎内 `Canvas`（9999） |
-| 注入 / Hook | **零注入** | 无（官方自行编译） |
-| 音频融合 | 系统混音 | Unity `AudioSource` 原生融合 |
-| 适用对象 | 服主 / 社区 | Northwood Studios |
-| 代码 | [`FoldClient/`](FoldClient/) | [`FoldNativeClient/`](FoldNativeClient/) |
-
-**两套方案共用同一套 ECDSA 签名信封**（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）：服务端只需签名一次，任一客户端实现都可验签执行。
+服务端与原生模块共用同一套 ECDSA 签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）：服务端只需签名一次，原生模块验签执行。
 
 ---
 
-## 🛡 v1.3–v1.4 企业控制平面 (Enterprise Control Plane)
+## 🛡 V15 企业控制平面 (Enterprise Control Plane)
 
 > **FoldEdge 现在不只是黑框框：内置暗黑赛博朋克 Web 管理面板、RBAC、统一日志中心、限时权限、VPN 凭证与 SCP:SL 进程生命周期管理。**
 
@@ -81,7 +62,7 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 
 入口文件：[`FoldEdge/wwwroot/dashboard.html`](FoldEdge/wwwroot/dashboard.html) · 认证与 RBAC：[`FoldEdge/Security/`](FoldEdge/Security/) · 日志：[`FoldEdge/Logging/LogService.cs`](FoldEdge/Logging/LogService.cs)
 
-### 🖥 服务器进程控制 (v1.4)
+### 🖥 服务器进程控制 (V15)
 
 - **顶部状态**：绿色 `RUNNING` / 红色 `STOPPED`，面向 `SCP:SL` 专用服务器
 - **三个按钮**：**启动服务器 / 关闭服务器 / 重启服务器**，直连 `/api/server/start|stop|restart`
@@ -121,16 +102,16 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
           ┌─────────────┴─────────────┐
           ▼                           ▼
 ┌──────────────────────┐   ┌──────────────────────────┐
-│ FE · FoldEngine      │   │ FVP · FoldClient         │
-│ 服务端 LabAPI 空壳   │   │ 外部 WPF 覆盖层          │
-│ 上报状态 / 执行动作  │   │ WS 收令 / 验签 / 硬解播放 │
-│ 广播原生字幕与提示   │   │ 置顶 / 鼠标穿透 / F9     │
+│ FE · FoldEngine      │   │ FVP-Native               │
+│ 服务端 LabAPI 空壳   │   │ FoldNativeClient         │
+│ 上报状态 / 执行动作  │   │ Unity Canvas 原生渲染     │
+│ 广播原生字幕与提示   │   │ 官方合入（方案 B）        │
 └──────────────────────┘   └──────────────────────────┘
 ```
 
 - **FH 是唯一持有私钥的模块。** 所有媒体指令离开 FH 前都已完成签名。
 - **FE 不持有任何密钥。** 它只上报状态、执行游戏内原生动作、把已签名的标记原样广播。
-- **FVP 是独立进程。** 它直接连接 FH 的 WebSocket，验签后播放，不进入游戏进程。
+- **FVP-Native 运行在游戏进程内。** 由官方随客户端源码编译，验签后调用 Unity 原生 UI 渲染。
 
 ---
 
@@ -141,13 +122,13 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 `FoldEdge/` · .NET 8 控制台服务
 
 - 解包 `.fdll`（ZIP），读取 `manifest.json` 与 `timeline.json`
-- 时间轴预下发：签名后的 JSON 由 FE/FVP 本地定时执行，减少网络抖动
+- 时间轴预下发：签名后的 JSON 由 FE 本地定时执行，减少网络抖动
 - 轮询 FE 上报的游戏状态，进行条件匹配
 - 优先级队列：多个条件同时触发时，按服主配置执行最高优先级事件
 - 持有 ECDSA P-256 私钥，签名格式见第 4 节
 - 防重放：3 秒时间窗 + nonce 去重
 - 提供 Web UI、`/api/*` 管理接口与 `/ws` WebSocket
-- **Web 管理面板 `/dashboard`**：FE / FVP 在线数、`Modules/*.fdll` 列表与 TRIGGER、限流开关与日志级别
+- **Web 管理面板 `/dashboard`**：FE 在线数、`Modules/*.fdll` 列表与 TRIGGER、限流开关与日志级别
 - **企业控制平面**：Owner / Admin / Viewer RBAC、PBKDF2 密码哈希、JWT 会话、实时双语日志、限时权限与 VPN 凭证
 - 密钥保存在 `FoldEdge/keys/`，**已被 .gitignore 排除，禁止提交**；用户库与会话密钥在 `FoldEdge/Data/`，同样不进入 Git
 
@@ -162,28 +143,13 @@ FE 没有任何自主逻辑，是 FH 的提线木偶：
 
 - **持续上报**：存活阵营、玩家状态、回合阶段等
 - **被动执行**：接收 FH 指令，执行刷怪、换角色、控门、原生字幕/广播
-- **转发媒体**：收到 FH 的媒体指令时，透传给对应客户端
+- **转发媒体**：收到 FH 的媒体指令时，透传给原生客户端
 - **稳定性**：4KB 控制包上限、每玩家 5 req/s 令牌桶、64 条主线程队列熔断、全量 try-catch
 - **零密钥**：不签名、不验签、不保存私钥
 
 配置项 `FoldEdgeUrl` 指向 FH 的 `/ws`，默认 `ws://127.0.0.1:9000/ws`。
 
-### 2.3 FVP · FoldClient（客户端渲染器）
-
-`FoldClient/` · 纯 C# WPF 桌面程序
-
-- 保留 `MfVideoDecoder`：Windows Media Foundation + DXVA 硬件解码
-- 后台线程解码，UI 线程只做一次 `WriteableBitmap` 上传
-- 全屏无边框、`Topmost`、鼠标穿透（`WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`）
-- 只接受 FH 签名的媒体 URL；公钥由 FH 在 WebSocket 握手时动态下发
-- 本地家长控制：命中 `18+` / `GORE` 标签的内容直接拒绝
-- **F9** 立即停止并销毁画面；**Ctrl+Shift+F9** 退出客户端
-- 不处理字幕、不处理复杂逻辑
-
-> 当前版本提供视频与图片渲染；音频播放尚未接入。  
-> 游戏需使用**窗口化**或**无边框全屏**，独占全屏下任何覆盖层都无法显示。
-
-### 2.4 FVP-Native · FoldNativeClient（Unity 原生集成模块）
+### 2.3 FVP-Native · FoldNativeClient（Unity 原生集成模块）
 
 `FoldNativeClient/` · 纯 Unity C# 脚本集 · **不产生独立可执行文件**
 
@@ -290,12 +256,12 @@ kind + "\n" + payloadJson + "\n" + timestampMs + "\n" + nonce
 
 ### 4.2 公钥固定（Trust Anchor）
 
-FVP 不信任连接里送来的任意公钥。启动时读取同目录 `FoldClient.pub`（SPKI Base64 或 PEM）作为唯一信任锚：
+FVP-Native 不信任连接里送来的任意公钥。启动时读取 `StreamingAssets/FoldClient.pub`（SPKI Base64 或 PEM）作为唯一信任锚：
 
-1. FH 握手后仍会推送 `{"type":"public-key","publicKey":"..."}`，FVP 也会发送 `get_public_key`
-2. FVP 只接受与 `FoldClient.pub` **完全一致**的公钥
-3. `FoldClient.pub` 缺失或无效时 **fail-closed**：所有指令一律拒绝
-4. 轮换密钥必须重新分发 `FoldClient.pub`，不能靠动态下发绕过信任锚
+1. FH 握手后仍会推送 `{"type":"public-key","publicKey":"..."}`，客户端也会发送 `get_public_key`
+2. 客户端只接受与固定公钥文件 **完全一致**的公钥
+3. 固定公钥缺失或无效时 **fail-closed**：所有指令一律拒绝
+4. 轮换密钥必须重新分发公钥文件，不能靠动态下发绕过信任锚
 
 ### 4.3 接收层强制验签
 
@@ -322,7 +288,7 @@ FE 不持有私钥，只原样转发 FH 生成的签名信封；未签名或畸�
 ### 4.5 边界
 
 - 不注入游戏进程，不加载 BepInEx，不修改游戏内存
-- FVP 通过 WebSocket（未来 Mirror UDP）接收 FH 签名的指令并渲染
+- FVP-Native 通过游戏内网络层（WebSocket 或集成后的 Mirror UDP）接收 FH 签名的指令并渲染
 - 公钥固定文件缺失时拒绝播放，而不是回退到明文或动态信任
 - 本项目不提供、也不承诺任何反作弊绕过
 - 远程部署请使用 `wss://` 或 VPN；明文 `ws://` 仅建议本机/内网使用
@@ -360,7 +326,7 @@ FE 不持有私钥，只原样转发 FH 生成的签名信封；未签名或畸�
 
 ## 5. 三种使用场景 (Three Deployment Modes)
 
-Fold 的服务端主脑（FH）、游戏内插件（FE）与客户端渲染器（FVP）完全解耦。按你的环境选择一种即可，三种场景可以混合使用。
+Fold 的服务端主脑（FH）、游戏内插件（FE）与原生客户端模块（FVP-Native）完全解耦。按你的环境选择一种即可，三种场景可以混合使用。
 
 ### 5.1 场景一：本地一键体验（All-in-One 镜像）
 
@@ -384,7 +350,7 @@ docker compose up -d --build
 
 打开 **http://127.0.0.1:9000/dashboard**。首次访问会强制进入 **Owner 初始化页**。面板包含：
 
-- FE / FVP 在线数量、模块数量、账号数量、运行时长与最近遥测
+- FE 在线数量、模块数量、账号数量、运行时长与最近遥测
 - `Modules/*.fdll` 实时列表，点击 **TRIGGER** 即通过 WebSocket 下发播放指令
 - 用户管理：Owner / Admin / Viewer、SteamID 绑定、限时有效期、VPN 凭证与 Windows 脚本下载
 - 统一日志中心：实时、按天切割、保留 7 天、中英双语
@@ -400,10 +366,10 @@ docker run -d --name foldedge --network host --restart always \
   -v "$PWD/FoldEdge/Assets:/app/Assets" \
   -v "$PWD/FoldEdge/Media:/app/Media" \
   -v "$PWD/FoldEdge/Data:/app/Data" \
-  ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
+  ghcr.io/xinyantao0803-max/fold-engine:v15
 ```
 
-> **镜像只包含服务器端 FH。** FVP 是 Windows 原生 WPF 程序，不能放进 Docker。  
+> **镜像只包含服务器端 FH。** FVP-Native 是随游戏客户端编译的 Unity C# 模块，不能放进 Docker。  
 > `network_mode: "host"` 会直接占用宿主 9000 端口；面板已内置 JWT 登录与 RBAC，但不含 TLS/MFA，公网部署请加 HTTPS 反向代理与防火墙。  
 > `network_mode: "host"` 推荐用于 Linux 宿主；在 Docker Desktop（Windows/macOS）上请改为 `ports: ["9000:9000"]`，并让 FE 连接 `ws://<宿主IP>:9000/ws`。
 
@@ -432,31 +398,17 @@ dotnet build .\FoldEngine\FoldEngine.csproj -c Release
 
 将 `FoldEngine.dll` 及依赖放入 LabAPI 插件目录，配置 `FoldEdgeUrl`（默认 `ws://127.0.0.1:9000/ws`），重启服务器。
 
-这一场景只使用 `FoldEdge` 与 `FoldEngine` 两个目录；FVP 由玩家各自运行，`FoldNativeClient` 仅供 Northwood 原生合入。
+这一场景只使用 `FoldEdge` 与 `FoldEngine` 两个目录；客户端渲染由 `FoldNativeClient` 在官方客户端内完成。
 
-### 5.3 场景三：客户端 FVP（Windows 本地）
+### 5.3 场景三：原生客户端接入（FVP-Native）
 
-**FVP 必须由玩家在本地 Windows 电脑上运行，不能放进 Docker，也不能部署在服务器上。**
+`FoldNativeClient/` 不是独立程序，不产生可执行文件，也不需要在玩家机器上安装任何东西。
 
-原因：FVP 是 WPF 桌面覆盖层，使用 Windows Media Foundation / DXVA 在本机显卡上硬解，并需要置顶、鼠标穿透与 F9 热键。
+1. Northwood 将 `FoldNativeClient/` 五个脚本复制进 Unity 客户端源码树。
+2. 将服务器 `FoldEdge/keys/fold-ecdsa-public.pem` 转成 SPKI Base64，保存为 `StreamingAssets/FoldClient.pub`。
+3. 调用 `FoldNativeRuntime.Initialize()` 与 `LoadPinnedKey()`，把收到的 Fold 标记交给 `HandleMarker`。
 
-1. 从 Releases 下载 `FoldClient`（或自行编译）。
-2. 将服务器 `FoldEdge/keys/fold-ecdsa-public.pem` 转成 SPKI Base64，保存为 `FoldClient.pub`，放在 `FoldClient.exe` 同目录。
-3. 启动：
-
-```powershell
-.\FoldClient.exe --edge ws://<服务器IP>:9000/ws
-```
-
-4. 进入游戏后使用窗口化或无边框全屏；按 **F9** 立即停止并销毁画面。
-
-```powershell
-# 本机自测播放
-.\FoldClient.exe --edge ws://127.0.0.1:9000/ws `
-  --test-video http://127.0.0.1:9000/Assets/your-video.mp4
-```
-
-`FoldEdge/Assets/` 与 `FoldEdge/Media/` 默认被 Git 忽略，请通过 `/api/media/upload` 或手动放置素材。
+完整步骤见 [NW-REVIEW.md](NW-REVIEW.md) 与 [docs/native-integration.md](docs/native-integration.md)。
 
 ### 5.4 服务器控制台快捷指令
 
@@ -476,7 +428,7 @@ docker compose up -d --build
 docker compose logs -f foldedge
 ```
 
-镜像标签：`ghcr.io/xinyantao0803-max/fold-engine:v1.4.0`
+镜像标签：`ghcr.io/xinyantao0803-max/fold-engine:v15`
 
 关键配置：
 
@@ -493,11 +445,11 @@ docker compose logs -f foldedge
 手动构建并推送 GHCR：
 
 ```bash
-docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.4.0 .
-docker push ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
+docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v15 .
+docker push ghcr.io/xinyantao0803-max/fold-engine:v15
 ```
 
-> 推送任意 `v*` 标签时，[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 会自动构建并推送同标签镜像与 `latest`。`v1.4.0` 镜像通过该流程发布。
+> 推送任意 `v*` 标签时，[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 会自动构建并推送同标签镜像与 `latest`。
 
 详细说明见 [docs/docker.md](docs/docker.md)。
 
@@ -512,18 +464,11 @@ docker push ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
 ```powershell
 dotnet build .\FoldEdge\FoldEdge.csproj   -c Release
 dotnet build .\FoldEngine\FoldEngine.csproj -c Release
-dotnet build .\FoldClient\FoldClient.csproj -c Release
 dotnet build .\tools\FoldPacker\FoldPacker.csproj -c Release
 
 # 原生模块语法检查（UNITY_MANAGED_DIR 指向 Unity 或 SCP:SL 的 Managed 目录）
 dotnet build .\FoldNativeClient\FoldNativeClient.csproj -c Release `
   -p:UNITY_MANAGED_DIR="D:\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed"
-```
-
-客户端解码器独立测试：
-
-```powershell
-dotnet run --project .\tests\FoldClient.Test\FoldClient.Test.csproj -c Release
 ```
 
 ---
@@ -537,23 +482,19 @@ FoldEdge/               FH 主程序（规则引擎、解包、ECDSA 签名、We
 ├─ Security/            用户库、PBKDF2、JWT、VPN 凭证、限时权限
 └─ Logging/             统一日志中心（按天切割、保留 7 天）
 FoldEngine/             FE 服务端插件（LabAPI 空壳代理 + revoke-access）
-FoldClient/             FVP 客户端（WPF + Media Foundation，方案 A）
-└─ Core/                解码与验签核心库
-FoldNativeClient/       FVP-Native Unity C# 模块（方案 B，供官方合入）
+FoldNativeClient/       FVP-Native Unity C# 模块（供官方合入）
 └─ README.md            原生集成说明与构建检查
 FoldStudio/
 └─ ROADMAP.md           FS 独立编辑器规划（MIT）
 docs/
-├─ index.md             文档站首页（双轨制）
-├─ native-integration.md 方案 B 合入说明
+├─ index.md             文档站首页
+├─ native-integration.md 原生模块合入说明
 ├─ docker.md            Docker 部署说明
 ├─ fdll-spec.md         .fdll 规范（时间轴、优先级、标签）
 ├─ nw-security.md       Northwood Studios 安全声明（防 MitM / 零信任协议）
 ├─ nw-email-draft.md    给 Northwood Studios 的邮件草稿
 └─ stylesheets/         文档站主题样式
 docs-site/              MkDocs Material 配置（GitHub Pages）
-tests/
-└─ FoldClient.Test/     解码器与验签独立测试
 tools/
 ├─ pack-fdll.ps1        旧版 PowerShell 打包脚本
 └─ FoldPacker/          C# CLI 打包工具（加密 / 签名）
@@ -569,7 +510,7 @@ LICENSE                 PolyForm Noncommercial 1.0.0（PFN 1.0）
 ## 9. 社区规范与合规
 
 - **强制标签**：包含 18+ 或 GORE 内容的 `.fdll` 必须在 `manifest.json` 中声明对应标签；FH 会把警告前缀注入服务器名。
-- **本地家长控制**：FVP 默认拒绝 `18+` / `GORE` 标签内容，玩家可在本地关闭。
+- **本地家长控制**：FVP-Native 默认拒绝 `18+` / `GORE` 标签内容，玩家可在本地关闭。
 - **版权归属**：开发者 100% 拥有其 `.fdll` 的版权，官方 0 抽成。
 - **内容责任**：开发者与服主对其 `.fdll` 中的媒体、文字与事件内容承担全部责任，包括素材授权。
 - **禁止内容**：不得包含违法、仇恨、骚扰、未经授权的版权素材或任何作弊功能。
@@ -581,7 +522,7 @@ LICENSE                 PolyForm Noncommercial 1.0.0（PFN 1.0）
 
 - 本项目与 Northwood Studios 无隶属关系，未获得官方背书。
 - 项目按白名单审查标准设计；在收到 Northwood 书面许可前，请勿将其描述为“官方组件”，也不要用于公共服务器分发。
-- FVP 是独立外部覆盖层，不注入游戏进程，但**不保证**在所有显示模式、分辨率或反作弊环境下可用。
+- FVP-Native 是游戏内 Unity 原生模块，不注入进程、不修改游戏内存，但**不保证**在所有画质设置或分辨率下表现一致。
 - 作者不对因使用本项目导致的封禁、数据丢失、内容纠纷或任何间接损失负责。
 - 使用本项目即表示你已阅读并同意 [LICENSE](LICENSE) 与本免责声明。
 

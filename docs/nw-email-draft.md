@@ -63,9 +63,9 @@ client-side cheat category.
 
 The complete implementation is open source and tested:
 
-- `FoldClient/FoldCommandReceiver.cs` — single verification entry point
-- `FoldClient/Core/src/SignedMediaCommand.cs` — P-256, 3-second window, nonce cache, pinned key
-- `tests/FoldClient.Test/SecurityTests.cs` — valid / tampered / expired / wrong-key / replay tests
+- `FoldNativeClient/FoldCommandReceiver.cs` — single verification entry point
+- `FoldNativeClient/SignedMediaCommand.cs` — P-256, 3-second window, nonce cache, pinned key
+- `FoldEdge/MediaSigner.cs` — server-side envelope producer
 - `FoldEngine/FoldEdgeClient.cs` — unsigned or malformed envelopes are rejected; FE never holds a private key
 - `docs/nw-security.md` — full security declaration
 

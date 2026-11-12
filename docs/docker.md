@@ -1,6 +1,6 @@
 # Docker Deployment
 
-## One-command FH deployment (v1.4.0)
+## One-command FH deployment (V15)
 
 From the repository root:
 
@@ -27,14 +27,14 @@ The first visit forces Owner initialisation (PBKDF2 password hashing).
 Image tag:
 
 ```
-ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
+ghcr.io/xinyantao0803-max/fold-engine:v15
 ```
 
 Build and push manually:
 
 ```bash
-docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.4.0 .
-docker push ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
+docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v15 .
+docker push ghcr.io/xinyantao0803-max/fold-engine:v15
 ```
 
 Logs:
@@ -74,7 +74,7 @@ host port 9000 directly.
 
 The control plane reads `Modules/*.fdll` in real time and can:
 
-- show online FE / FVP counts and the last telemetry line
+- show online FE counts and the last telemetry line
 - trigger a module (`POST /api/trigger/{module}` → signed play command over WebSocket)
 - manage users with Owner / Admin / Viewer roles, expiries, SteamID binding, and VPN credentials
 - start, stop, and restart the SCP:SL server, with captured stdout/stderr merged into the log center
@@ -111,11 +111,10 @@ image. Add your existing server service to `docker-compose.yml`, keep
 ws://127.0.0.1:9000/ws
 ```
 
-## Client (FVP)
+## Client (FVP-Native)
 
-The WPF client is Windows-native and cannot run in Docker. Each player runs
-`FoldClient.exe` locally with `FoldClient.pub` next to it. See the README section
-"场景三：客户端 FVP".
+The client renderer is a Unity C# module merged into the official game client; it cannot run in
+Docker. See [`FoldNativeClient/README.md`](../FoldNativeClient/README.md) and the NW review guide.
 
 ## Game server process control
 
@@ -132,5 +131,5 @@ Windows host as the SCP:SL server and configure `GameServer:ExecutablePath`.
 - Back up `FoldEdge/keys` securely. The private key signs every Fold command.
 - Back up `FoldEdge/Data` securely: it contains the user database, JWT secret,
   and VPN credentials.
-- The external FVP verifies commands against a pinned `FoldClient.pub`; a
+- The native client verifies commands against a pinned `FoldClient.pub`; a
   missing pin file means fail-closed.

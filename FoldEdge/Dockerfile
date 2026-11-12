@@ -1,6 +1,6 @@
 # FoldEdge (FH) container — All-in-One server brain with the /dashboard Web UI.
 # Build from the repository root:
-#   docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.2 .
+#   docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v15 .
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src

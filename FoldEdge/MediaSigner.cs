@@ -9,7 +9,7 @@ namespace FoldEdge
 {
     /// <summary>
     /// 媒体指令签名器（非对称）：ECDSA P-256 + SHA-256。
-    /// 私钥只保存在 FoldEdge 的 keys/ 目录，公钥硬编码在 FoldClient。
+    /// 私钥只保存在 FoldEdge 的 keys/ 目录，公钥硬编码在原生客户端。
     /// 签名内容：kind + "\n" + payloadJson + "\n" + timestampMs + "\n" + nonce。
     /// FoldEngine 不持有任何密钥，只原样透传签名标记。
     /// </summary>

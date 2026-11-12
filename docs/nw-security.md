@@ -43,13 +43,13 @@ Any failure is logged with a reason (`bad-signature`, `expired`, `replay`,
 
 ## 3. Trust anchor
 
-FVP ships with `FoldClient.pub` next to `FoldClient.exe`. It contains the SPKI
+The native client ships with `FoldClient.pub` in `StreamingAssets/`. It contains the SPKI
 public key (Base64 or PEM). This file is the only trust anchor.
 
 - FH may still push its current public key over WebSocket for convenience.
-- FVP accepts that key **only if it is byte-for-byte identical to `FoldClient.pub`**.
-- If `FoldClient.pub` is missing or invalid, FVP fails closed and rejects every command.
-- Key rotation requires distributing a new `FoldClient.pub`; a network attacker
+- The client accepts that key **only if it is byte-for-byte identical to `FoldClient.pub`**.
+- If `FoldClient.pub` is missing or invalid, the client fails closed and rejects every command.
+- Key rotation requires shipping a new `FoldClient.pub`; a network attacker
   cannot substitute a key by intercepting the handshake.
 
 ## 4. FoldEngine role
@@ -67,8 +67,8 @@ FE (FoldEngine) does **not** hold an ECDSA private key and cannot sign commands.
 
 The same verifier is used for:
 
-- Current external beta: WebSocket (`ws://` / `wss://`)
-- Future native integration: Mirror UDP
+- Current server transport: WebSocket (`ws://` / `wss://`)
+- Native integration: Mirror UDP
 
 The transport is irrelevant to the security decision: the payload is verified
 before execution in both cases.
@@ -86,19 +86,15 @@ anti-cheat bypass.
 
 ## 7. Verification evidence
 
-The repository's `tests/FoldClient.Test` includes automated security checks:
+The verification logic lives in `FoldNativeClient/SignedMediaCommand.cs` and rejects:
 
-- valid signature accepted
-- tampered payload rejected (`bad-signature`)
-- expired timestamp rejected (`expired`)
-- wrong signing key rejected (`bad-signature`)
-- replayed nonce rejected (`replay`)
+- tampered payload (`bad-signature`)
+- expired timestamp (`expired`)
+- wrong signing key (`bad-signature`)
+- replayed nonce (`replay`)
+- missing pin (`no-key`)
 
-Run:
-
-```powershell
-dotnet run --project .\tests\FoldClient.Test\FoldClient.Test.csproj -c Release
-```
+The same envelope is produced server-side by `FoldEdge/MediaSigner.cs`.
 
 ---
 
@@ -200,13 +196,11 @@ client-side cheat category.
 
 The complete reference implementation is open source and tested:
 
-- [`FoldClient/FoldCommandReceiver.cs`](../FoldClient/FoldCommandReceiver.cs) —
+- [`FoldNativeClient/FoldCommandReceiver.cs`](../FoldNativeClient/FoldCommandReceiver.cs) —
   single verification entry point; rejects malformed, expired, replayed, or
   incorrectly signed commands before execution.
-- [`FoldClient/Core/src/SignedMediaCommand.cs`](../FoldClient/Core/src/SignedMediaCommand.cs) —
+- [`FoldNativeClient/SignedMediaCommand.cs`](../FoldNativeClient/SignedMediaCommand.cs) —
   P-256 verification, 3-second window, nonce cache, pinned-key enforcement.
-- [`tests/FoldClient.Test/SecurityTests.cs`](../tests/FoldClient.Test/SecurityTests.cs) —
-  valid, tampered, expired, wrong-key, and replay test cases.
 - [`FoldEngine/FoldEdgeClient.cs`](../FoldEngine/FoldEdgeClient.cs) — forwarding
   layer that rejects unsigned or malformed envelopes and never holds a private
   key.

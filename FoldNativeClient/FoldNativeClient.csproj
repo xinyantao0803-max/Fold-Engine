@@ -7,6 +7,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>FoldNativeClient</AssemblyName>
     <RootNamespace>FoldNative</RootNamespace>
+    <Version>15.0.0</Version>
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
     <!--
       Unity reference assemblies are provided by the Unity installation or the

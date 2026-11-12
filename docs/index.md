@@ -18,31 +18,29 @@ Not just a media player, but a Zero-Trust network protocol reference for SCP:SL.
 
 </div>
 
-## Two Integration Solutions
+## Delivery Model
 
 <div class="grid cards" markdown>
 
--   :material-monitor:{ .lg .middle } **Plan A — External Renderer**
+-   :material-console:{ .lg .middle } **Server · FH + FE**
 
     ---
 
-    **External Renderer · Zero Injection**
+    **FoldEdge Control Plane · FoldEngine LabAPI Plugin**
 
-    A standalone WPF process using Windows Media Foundation hardware
-    decoding. It never touches game memory and requires no game modification.
+    The .NET 8 service unpacks `.fdll` modules, matches game state, signs every
+    command, and broadcasts over WebSocket. The LabAPI plugin reports state and
+    executes in-game actions.
 
-    - No injection, no BepInEx, no C++ loader
-    - ECDSA-verified commands
-    - F9 instant stop
-    - Available now for server owners
+    - Dashboard, RBAC, live bilingual logs
+    - ECDSA P-256 signed commands
+    - Start / stop / restart the SCP:SL server
 
-    [Open the external client](https://github.com/xinyantao0803-max/Fold-Engine/tree/main/FoldClient)
-
--   :material-engine:{ .lg .middle } **Plan B — Native Engine Integration**
+-   :material-engine:{ .lg .middle } **Native Engine Integration**
 
     ---
 
-    **Native Engine Integration · For Northwood Studios**
+    **For Northwood Studios**
 
     Pure Unity C# scripts that Northwood Studios can copy directly into the
     official client source tree.
@@ -56,7 +54,7 @@ Not just a media player, but a Zero-Trust network protocol reference for SCP:SL.
 
 </div>
 
-## Enterprise Control Plane (v1.4)
+## Enterprise Control Plane (V15)
 
 - **Dashboard** — `/dashboard` SPA with login, RBAC, module trigger, live logs, and settings.
 - **RBAC** — Owner / Admin / Viewer; PBKDF2-SHA256 passwords; HS256 JWT sessions.
@@ -69,7 +67,7 @@ Not just a media player, but a Zero-Trust network protocol reference for SCP:SL.
 
 ## Core Security Properties
 
-- **Zero injection** — the external client is a separate WPF process.
+- **Zero injection** — the native module runs inside the official client source tree.
 - **ECDSA P-256** — every executable command is signed.
 - **Pinned public key** — dynamic key substitution is rejected.
 - **Replay protection** — 3-second window plus single-use nonce.

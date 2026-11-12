@@ -3,6 +3,7 @@
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AssemblyName>FoldEngine</AssemblyName>
+    <Version>15.0.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="LabAPI">

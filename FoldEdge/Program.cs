@@ -17,7 +17,7 @@ using Microsoft.Extensions.FileProviders;
 //    POST /api/module/publish       视频 URL + 海报 → 一键打包 .fdll
 //    POST /api/control/stop         下发 [FOLD_CMD] STOP
 //    POST /api/control/jump/{sec}   下发 [FOLD_CMD] JUMP
-//    POST /api/telemetry            FoldClient 播放状态遥测（HMAC 校验）
+//    POST /api/telemetry            FVP-Native 播放状态遥测（HMAC 校验）
 //    GET  /ws                       WebSocket 接入点（FoldEngine 插件长连接）
 // ============================================================
 
@@ -25,7 +25,7 @@ var builder = WebApplication.CreateBuilder(args);
 var listenUrl = builder.Configuration["ListenUrl"] ?? "http://127.0.0.1:9000";
 builder.WebHost.UseUrls(listenUrl);
 
-const string FoldVersion = "1.4.0";
+const string FoldVersion = "V15";
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -144,12 +144,12 @@ var lastTelemetry = "none";
 Loc.Load("zh-CN");
 FoldLog.Info($"[FoldEdge] {Loc.Get("service.start")}");
 
-// ECDSA 密钥：首次启动生成 keys/fold-ecdsa-private.pem，公钥需硬编码进 FoldClient
+// ECDSA 密钥：首次启动生成 keys/fold-ecdsa-private.pem，公钥需硬编码进原生客户端
 MediaSigner.Initialize();
 FoldLog.Info("[FoldEdge] ECDSA public key (SPKI PEM):");
 FoldLog.Info(MediaSigner.PublicKeyPem);
 
-// ---- WebSocket 客户端连接表（FoldEngine 插件 / FoldClient 客户端） ----
+// ---- WebSocket 客户端连接表（FoldEngine 插件 / FVP-Native 原生客户端） ----
 // 客户端连接后发送 {"type":"hello","role":"fe"|"fvp"} 以便面板区分在线数量。
 var clients = new ConcurrentDictionary<Guid, ClientConnection>();
 
@@ -192,7 +192,7 @@ int CountAliveClients()
     return count;
 }
 
-// 按角色统计在线连接：fe = FoldEngine 插件，fvp = FoldClient，unknown = 尚未 hello
+// 按角色统计在线连接：fe = FoldEngine 插件，fvp = FVP-Native 原生客户端，unknown = 尚未 hello
 (int Fe, int Fvp, int Unknown) CountClientRoles()
 {
     int fe = 0, fvp = 0, unknown = 0;
@@ -397,7 +397,7 @@ async Task HandleClientMessage(Guid clientId, string msg)
         if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
         var type = typeEl.GetString();
 
-        // 角色握手：FE 插件发送 role=fe，FoldClient 发送 role=fvp
+        // 角色握手：FE 插件发送 role=fe，FVP-Native 原生客户端发送 role=fvp
         if (type == "hello")
         {
             if (clients.TryGetValue(clientId, out var connection))
@@ -1101,7 +1101,7 @@ app.MapPost("/api/control/jump/{seconds:double}",
         return await SendControlAsync("JUMP", seconds);
     });
 
-// ---- POST /api/telemetry：FoldClient 播放状态（HMAC 校验） ----
+// ---- POST /api/telemetry：FVP-Native 播放状态（HMAC 校验） ----
 app.MapPost("/api/telemetry", async (HttpContext context) =>
 {
     using var doc = await JsonDocument.ParseAsync(context.Request.Body);
@@ -1154,7 +1154,7 @@ app.Lifetime.ApplicationStopping.Register(expiryService.Stop);
 app.Lifetime.ApplicationStarted.Register(gameServer.AutoStartIfConfigured);
 app.Lifetime.ApplicationStopping.Register(gameServer.Dispose);
 
-logService.Write("Info", $"FoldEdge v{FoldVersion} 已启动", $"FoldEdge v{FoldVersion} started");
+logService.Write("Info", $"FoldEdge {FoldVersion} 已启动", $"FoldEdge {FoldVersion} started");
 app.Run();
 
 // ---- 认证 / 权限辅助 ----

@@ -14,7 +14,7 @@ services:
     build:
       context: .
       dockerfile: FoldEdge/Dockerfile
-    image: ghcr.io/xinyantao0803-max/fold-engine:v1.4.0
+    image: ghcr.io/xinyantao0803-max/fold-engine:v15
     container_name: foldedge
     network_mode: "host"
     restart: always

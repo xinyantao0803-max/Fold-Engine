@@ -275,7 +275,7 @@ namespace FoldPacker
 
         private static void PrintUsage()
         {
-            Console.WriteLine("FoldPacker 1.0 — pack a folder into .fdll (ZIP)");
+            Console.WriteLine("FoldPacker V15 — pack a folder into .fdll (ZIP)");
             Console.WriteLine();
             Console.WriteLine("Usage:");
             Console.WriteLine("  FoldPacker <module-dir> [-o output.fdll] [--encrypt] [--sign private-key.pem]");

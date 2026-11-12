@@ -5,23 +5,23 @@ and what we are asking for.**
 
 Repository: https://github.com/xinyantao0803-max/Fold-Engine  
 Documentation site: https://xinyantao0803-max.github.io/Fold-Engine/  
-Version reviewed: **v1.4.0**
+Version reviewed: **V15**
 
 ---
 
 ## 1. Summary
 
-Fold Mod is a data-driven media and event framework for SCP:SL. It is delivered as **two
-independent, real implementations** — not a single product with a promise attached:
+Fold Mod is a data-driven media and event framework for SCP:SL. The client-side rendering is
+delivered as **one native Unity C# module**, ready to be merged into the official client source:
 
 | Track | Code | Integration | Status |
 | --- | --- | --- | --- |
-| **A · External renderer** | [`FoldClient/`](FoldClient/) | Separate WPF process, zero injection, no game modification | Running, tested |
-| **B · Native engine integration** | [`FoldNativeClient/`](FoldNativeClient/) | Pure Unity C# scripts copied into the client source tree | Source-complete, compile-verified |
+| **Server · FH + FE** | [`FoldEdge/`](FoldEdge/) · [`FoldEngine/`](FoldEngine/) | .NET 8 control plane + LabAPI plugin | Running, tested |
+| **Native engine integration** | [`FoldNativeClient/`](FoldNativeClient/) | Pure Unity C# scripts copied into the client source tree | Source-complete, compile-verified |
 
-Both tracks verify the **same ECDSA-signed envelope**, so a server signs commands once and either
-client can consume them. The transport can be WebSocket today and Mirror UDP after integration
-without changing the verification code.
+The server signs every command once with an ECDSA envelope; the native module verifies it. The
+transport can be WebSocket today and Mirror UDP after integration without changing the verification
+code. The external WPF renderer (Plan A) has been removed from this repository.
 
 **Core barriers**
 
@@ -44,15 +44,14 @@ without changing the verification code.
 | Native Unity module, renderer | [`FoldNativeClient/FoldNativeUI.cs`](FoldNativeClient/FoldNativeUI.cs) |
 | Signature verification (Unity port) | [`FoldNativeClient/SignedMediaCommand.cs`](FoldNativeClient/SignedMediaCommand.cs) |
 | Command gate (Unity port) | [`FoldNativeClient/FoldCommandReceiver.cs`](FoldNativeClient/FoldCommandReceiver.cs) |
-| Signature verification (external client) | [`FoldClient/Core/src/SignedMediaCommand.cs`](FoldClient/Core/src/SignedMediaCommand.cs) |
 | Server-side forwarding and limits | [`FoldEngine/FoldEdgeClient.cs`](FoldEngine/FoldEdgeClient.cs) |
+| Server control plane and signing | [`FoldEdge/Program.cs`](FoldEdge/Program.cs) · [`FoldEdge/MediaSigner.cs`](FoldEdge/MediaSigner.cs) |
 | Security declaration and zero-trust proposal | [`docs/nw-security.md`](docs/nw-security.md) |
 | `.fdll` format | [`docs/fdll-spec.md`](docs/fdll-spec.md) |
-| Security test cases | [`tests/FoldClient.Test/SecurityTests.cs`](tests/FoldClient.Test/SecurityTests.cs) |
 
 ---
 
-## 3. Plan B — native integration guide
+## 3. Native integration guide
 
 ### 3.1 Files to extract
 
@@ -152,75 +151,70 @@ Current result in this repository: **0 warnings, 0 errors**.
 
 ---
 
-## 4. Plan A — external renderer (already usable)
-
-`FoldClient/` is a standalone WPF process that connects to FH over WebSocket:
-
-- Windows Media Foundation + DXVA hardware decoding, frames uploaded once per frame to a
-  `WriteableBitmap`.
-- Borderless topmost window, mouse-transparent
-  (`WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`).
-- F9 stops and destroys the overlay immediately; Ctrl+Shift+F9 exits.
-- It does not touch game memory, does not load into the game process, and does not call Unity APIs.
-
-This track exists so server owners can use Fold today, before any native integration lands.
-
----
-
-## 5. Ecosystem completeness
+## 4. Ecosystem completeness
 
 | Area | Deliverable |
 | --- | --- |
-| Runtime | FH (`FoldEdge`, .NET 8), FE (`FoldEngine`, LabAPI), FVP (`FoldClient`, WPF) |
+| Runtime | FH (`FoldEdge`, .NET 8), FE (`FoldEngine`, LabAPI) |
 | Enterprise control plane | `/dashboard` SPA, JWT + RBAC, PBKDF2 hashing, bilingual log center, time-limited access, VPN credential lifecycle, silent SCP:SL process lifecycle |
-| Native integration | `FoldNativeClient/` — Unity C# module (this release) |
+| Native integration | `FoldNativeClient/` — Unity C# module |
 | Deployment | [`start.sh`](start.sh) + [`FoldEdge/Dockerfile`](FoldEdge/Dockerfile) + [`docker-compose.yml`](docker-compose.yml) with `network_mode: "host"` |
 | Authoring | [`tools/FoldPacker`](tools/FoldPacker) — `.fdll` packer with AES container and detached ECDSA signature |
 | Documentation | [`docs/`](docs/) + MkDocs Material site in [`docs-site/`](docs-site/) |
-| Verification | [`tests/FoldClient.Test`](tests/FoldClient.Test) — valid / tampered / expired / wrong-key / replay |
 | Roadmap | [`FoldStudio/ROADMAP.md`](FoldStudio/ROADMAP.md) — MIT-licensed authoring tool |
 
 ---
 
-## 6. Reproduce the security checks
+## 5. Reproduce the build and checks
 
 ```powershell
-dotnet run --project .\tests\FoldClient.Test\FoldClient.Test.csproj -c Release
+# Server control plane
+dotnet build .\FoldEdge\FoldEdge.csproj -c Release -warnaserror
+
+# LabAPI plugin
+dotnet build .\FoldEngine\FoldEngine.csproj -c Release -warnaserror
+
+# Packaging tool
+dotnet build .\tools\FoldPacker\FoldPacker.csproj -c Release -warnaserror
+
+# Native module syntax check
+dotnet build .\FoldNativeClient\FoldNativeClient.csproj -c Release -warnaserror `
+  -p:UNITY_MANAGED_DIR="<path to your Unity managed assemblies>"
 ```
 
-Expected: valid signature accepted; tampered payload, expired timestamp, wrong signing key and
-replayed nonce all rejected with machine-readable reasons.
+Expected: **0 warnings, 0 errors** for all four projects.
+
+Signature behaviour (valid / tampered / expired / wrong-key / replay) is enforced in
+[`FoldNativeClient/SignedMediaCommand.cs`](FoldNativeClient/SignedMediaCommand.cs) and mirrors the
+server-side envelope produced by [`FoldEdge/MediaSigner.cs`](FoldEdge/MediaSigner.cs).
 
 ---
 
-## 7. Our request
+## 6. Our request
 
-1. **Whitelist review** of Plan A so server owners can deploy the external renderer without
-   ambiguity.
-2. **Technical review of Plan B** as a candidate native feature. The source is complete, licensed
-   for Northwood's commercial use, and can be merged, rewritten, or partially adopted.
-3. If Plan B is adopted, we are available to adapt the module to your actual client architecture,
-   UI stack, and Mirror command routing under your engineering direction.
+1. **Technical review** of the native module as a candidate official feature. The source is
+   complete, licensed for Northwood's commercial use, and can be merged, rewritten, or partially
+   adopted.
+2. If adopted, we are available to adapt the module to your actual client architecture, UI stack,
+   and Mirror command routing under your engineering direction.
 
 We are not asking for a privileged position: the code is open, the security model is documented,
 and the integration path does not require Northwood to maintain any extra process.
 
 ---
 
-## 8. Honest boundaries
+## 7. Honest boundaries
 
 - Fold protects the **Fold command channel** against tampering, forgery and replay. It does not
   claim to stop a user who modifies their own client binary or runs unrelated software.
 - Fold does not provide, and will not provide, any anti-cheat bypass.
-- Plan A requires windowed or borderless-fullscreen mode; exclusive fullscreen cannot host an
-  external overlay. Plan B does not have this limitation.
-- `FoldClient` audio playback is not yet wired in the external renderer; the native module feeds
-  Unity's `AudioSource` directly.
+- The native module renders through a runtime-created `Canvas`; it requires the `Video`, `UI`,
+  `Unity Web Request Texture` and `Audio` modules to be enabled in the player settings.
 - The FoldStudio editor is a documented roadmap, not shipped code.
 
 ---
 
-## 9. Contact
+## 8. Contact
 
 Repository issues: https://github.com/xinyantao0803-max/Fold-Engine/issues  
 Email draft for Northwood: [`docs/nw-email-draft.md`](docs/nw-email-draft.md)
