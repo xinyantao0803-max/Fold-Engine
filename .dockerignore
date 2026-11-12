@@ -1,0 +1,13 @@
+.git
+.gitignore
+**/bin
+**/obj
+**/dist
+FoldEdge/keys
+FoldEdge/Modules
+FoldEdge/Assets
+FoldEdge/Media
+FoldEdge/Data
+docs-site/site
+tests/**/first_frame.*
+*.log

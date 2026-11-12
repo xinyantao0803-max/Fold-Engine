@@ -440,6 +440,8 @@ docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.
 docker push ghcr.io/xinyantao0803-max/fold-engine:v1.2
 ```
 
+> 推送任意 `v*` 标签时，[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 会自动构建并推送同标签镜像与 `latest`。`v1.2` 镜像已通过该流程发布。
+
 详细说明见 [docs/docker.md](docs/docker.md)。
 
 ---
