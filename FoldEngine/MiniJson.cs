@@ -96,6 +96,22 @@ namespace FoldEngine
                 : fallback;
         }
 
+        /// <summary>提取 "key" 对应的布尔值（true / false），缺失或非法时返回 fallback。</summary>
+        public static bool GetBoolValue(string json, string key, bool fallback)
+        {
+            if (!TryFindKey(json, key, out var colon)) return fallback;
+
+            int i = colon + 1;
+            while (i < json.Length && (json[i] == ' ' || json[i] == '\t')) i++;
+            if (i + 4 <= json.Length &&
+                string.Compare(json, i, "true", 0, 4, StringComparison.OrdinalIgnoreCase) == 0)
+                return true;
+            if (i + 5 <= json.Length &&
+                string.Compare(json, i, "false", 0, 5, StringComparison.OrdinalIgnoreCase) == 0)
+                return false;
+            return fallback;
+        }
+
         /// <summary>提取 "key" 对应的数组内容（不含两端的方括号），无则返回 null。</summary>
         public static string ExtractArrayBody(string json, string key)
         {

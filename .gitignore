@@ -15,6 +15,7 @@ SCP Secret Laboratory/
 # secrets and runtime data (never commit)
 keys/
 FoldEdge/keys/
+FoldEdge/Data/
 FoldEdge/Assets/
 FoldEdge/Media/
 

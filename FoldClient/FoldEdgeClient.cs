@@ -65,6 +65,9 @@ namespace FoldClient
                         await socket.ConnectAsync(new Uri(_url), ct);
                         AppLog.Write("connected to FoldEdge: " + _url);
 
+                        // 角色握手：管理面板据此统计在线 FVP 数量
+                        await SendOnSocketAsync(socket, "{\"type\":\"hello\",\"role\":\"fvp\",\"name\":\"FoldClient\"}");
+
                         // 主动索取公钥；FH 也会在握手后自动推送一次。
                         await SendOnSocketAsync(socket, "{\"type\":\"get_public_key\"}");
 

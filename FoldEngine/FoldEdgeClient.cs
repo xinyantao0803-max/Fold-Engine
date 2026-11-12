@@ -183,6 +183,10 @@ namespace FoldEngine
                         _socket = socket;
                         await socket.ConnectAsync(new Uri(url), ct);
                         Logger.Info($"[Fold] 已连接 FoldEdge: {url}");
+
+                        // 角色握手：管理面板据此统计在线 FE 数量
+                        await SendAsync("{\"type\":\"hello\",\"role\":\"fe\",\"name\":\"FoldEngine\"}");
+
                         await ReceiveLoopAsync(socket, ct);
                     }
                 }
@@ -257,10 +261,22 @@ namespace FoldEngine
             {
                 var type = MiniJson.GetStringValue(json, "type");
                 if (type == "command" && HandleCommand(json, byteCount)) return;
+                if (type == "config") HandleConfig(json);
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[Fold] 指令解析失败: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>FoldEdge 管理面板下发的运行时配置：目前支持限流开关。</summary>
+        private static void HandleConfig(string json)
+        {
+            bool enabled = MiniJson.GetBoolValue(json, "rateLimitEnabled", RateLimiter.Enabled);
+            if (enabled != RateLimiter.Enabled)
+            {
+                RateLimiter.Enabled = enabled;
+                Logger.Info($"[Fold] 限流已{(enabled ? "开启" : "关闭")}（来自 FoldEdge 管理面板）");
             }
         }
 

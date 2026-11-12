@@ -14,6 +14,7 @@ services:
     build:
       context: .
       dockerfile: FoldEdge/Dockerfile
+    image: ghcr.io/xinyantao0803-max/fold-engine:v1.2
     container_name: foldedge
     network_mode: "host"
     restart: always
@@ -22,8 +23,12 @@ services:
       - ./FoldEdge/Modules:/app/Modules
       - ./FoldEdge/Assets:/app/Assets
       - ./FoldEdge/Media:/app/Media
+      - ./FoldEdge/Data:/app/Data
     environment:
-      - ASPNETCORE_URLS=http://127.0.0.1:9000
+      # 0.0.0.0 is required inside the container; use a firewall/VPN if the
+      # dashboard must not be reachable from the LAN.
+      - ListenUrl=http://0.0.0.0:9000
+      - ASPNETCORE_ENVIRONMENT=Production
       - DOTNET_ENVIRONMENT=Production
 
   # ---------------------------------------------------------------------------

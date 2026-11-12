@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FoldEdge // Control Deck</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05070c;
+      --panel: rgba(15, 21, 32, 0.82);
+      --panel-2: rgba(10, 15, 24, 0.9);
+      --line: rgba(34, 211, 238, 0.22);
+      --line-soft: rgba(255, 255, 255, 0.07);
+      --cyan: #22d3ee;
+      --violet: #8b5cf6;
+      --pink: #f472b6;
+      --lime: #a3e635;
+      --amber: #fbbf24;
+      --text: #e6f0fa;
+      --muted: #7f92aa;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 28px;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1000px 500px at 8% -12%, rgba(139, 92, 246, 0.18), transparent 60%),
+        radial-gradient(900px 460px at 96% 4%, rgba(34, 211, 238, 0.12), transparent 62%),
+        var(--bg);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.025) 0px,
+        rgba(255, 255, 255, 0.025) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      opacity: 0.35;
+      z-index: 0;
+    }
+
+    .shell { max-width: 1180px; margin: 0 auto; position: relative; z-index: 1; }
+
+    header.deck {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(34, 211, 238, 0.05) 55%, transparent);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    .brand { display: flex; align-items: center; gap: 14px; }
+
+    .sigil {
+      width: 42px; height: 42px; border-radius: 12px;
+      border: 1px solid rgba(34, 211, 238, 0.45);
+      display: grid; place-items: center;
+      font-family: var(--mono);
+      font-weight: 700;
+      color: var(--cyan);
+      background: rgba(34, 211, 238, 0.07);
+      box-shadow: 0 0 24px rgba(34, 211, 238, 0.16) inset;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.16em;
+      font-family: var(--mono);
+    }
+
+    .brand p { margin: 4px 0 0; color: var(--muted); font-size: 12px; letter-spacing: 0.08em; }
+
+    .deck-right { display: flex; align-items: center; gap: 14px; }
+
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 7px 12px; border-radius: 999px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255, 255, 255, 0.03);
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.online { background: var(--lime); box-shadow: 0 0 12px rgba(163, 230, 53, 0.8); }
+    .dot.offline { background: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, 0.7); }
+
+    .link {
+      color: var(--cyan);
+      text-decoration: none;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid rgba(34, 211, 238, 0.3);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 14px;
+      margin: 18px 0;
+    }
+
+    .stat {
+      padding: 18px 20px;
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat::after {
+      content: "";
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--cyan);
+      opacity: 0.65;
+    }
+
+    .stat.violet::after { background: var(--violet); }
+    .stat.pink::after { background: var(--pink); }
+    .stat.lime::after { background: var(--lime); }
+
+    .stat .label {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .stat .value {
+      margin-top: 8px;
+      font-family: var(--mono);
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .stat .sub { margin-top: 6px; color: var(--muted); font-size: 11px; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.55fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      color: var(--text);
+      text-transform: uppercase;
+    }
+
+    .panel-head .hint { color: var(--muted); font-size: 11px; }
+
+    .panel-body { padding: 16px 18px; }
+
+    table.modules { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    table.modules th {
+      text-align: left;
+      padding: 9px 8px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    table.modules td {
+      padding: 11px 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+      vertical-align: middle;
+    }
+
+    table.modules tr:last-child td { border-bottom: 0; }
+    table.modules tr:hover td { background: rgba(34, 211, 238, 0.035); }
+
+    .mono { font-family: var(--mono); font-size: 12px; }
+    .name { color: #f4f9ff; font-weight: 600; }
+    .muted { color: var(--muted); }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(163, 230, 53, 0.28);
+      background: rgba(163, 230, 53, 0.08);
+      color: var(--lime);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+    }
+
+    .tag.warn {
+      border-color: rgba(251, 191, 36, 0.3);
+      background: rgba(251, 191, 36, 0.08);
+      color: var(--amber);
+    }
+
+    button {
+      font: inherit;
+      cursor: pointer;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+    }
+
+    button:active { transform: translateY(1px); }
+
+    .btn-trigger {
+      padding: 7px 14px;
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(139, 92, 246, 0.18));
+      border-color: rgba(34, 211, 238, 0.4);
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+    }
+
+    .btn-trigger:hover { background: rgba(34, 211, 238, 0.22); border-color: var(--cyan); }
+
+    .btn-primary {
+      width: 100%;
+      margin-top: 16px;
+      padding: 11px 14px;
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.85), rgba(139, 92, 246, 0.85));
+      color: #061018;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .btn-primary:hover { filter: brightness(1.08); }
+
+    .btn-ghost {
+      padding: 9px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--line-soft);
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .btn-ghost:hover { border-color: rgba(34, 211, 238, 0.4); color: var(--cyan); }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px;
+      padding: 11px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .toggle-row:last-of-type { border-bottom: 0; }
+
+    .toggle-copy .t { font-size: 13px; }
+    .toggle-copy .d { margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+    .switch {
+      position: relative;
+      width: 46px; height: 26px;
+      flex: 0 0 auto;
+    }
+
+    .switch input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute; inset: 0;
+      border-radius: 999px;
+      background: #1b2432;
+      border: 1px solid var(--line-soft);
+      transition: 0.2s;
+    }
+
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; top: 3px;
+      border-radius: 50%;
+      background: #6b7a8f;
+      transition: 0.2s;
+    }
+
+    .switch input:checked + .slider {
+      background: rgba(34, 211, 238, 0.22);
+      border-color: rgba(34, 211, 238, 0.5);
+    }
+
+    .switch input:checked + .slider::before {
+      transform: translateX(20px);
+      background: var(--cyan);
+      box-shadow: 0 0 12px rgba(34, 211, 238, 0.7);
+    }
+
+    select, input[type="number"] {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line-soft);
+      background: #0a0f17;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .control-row { display: flex; gap: 8px; }
+    .control-row input { flex: 1 1 auto; min-width: 70px; }
+    .control-row button { flex: 0 0 auto; }
+
+    .toast {
+      margin-top: 14px;
+      min-height: 20px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .toast.ok { color: var(--lime); }
+    .toast.err { color: #f87171; }
+
+    .empty {
+      padding: 26px 8px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    footer {
+      margin-top: 18px;
+      padding: 12px 4px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="deck">
+    <div class="brand">
+      <div class="sigil">FD</div>
+      <div>
+        <h1>FOLD//EDGE</h1>
+        <p>CONTROL DECK · MEDIA &amp; EVENT ORCHESTRATOR</p>
+      </div>
+    </div>
+    <div class="deck-right">
+      <span class="pill"><span class="dot" id="healthDot"></span><span id="healthText">CONNECTING</span></span>
+      <span class="pill" id="versionPill">v1.2.0</span>
+      <a class="link" href="/">CONSOLE</a>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="label">FE · FoldEngine</div>
+      <div class="value" id="statFe">0</div>
+      <div class="sub">游戏服务端插件在线</div>
+    </div>
+    <div class="stat violet">
+      <div class="label">FVP · FoldClient</div>
+      <div class="value" id="statFvp">0</div>
+      <div class="sub">外部渲染客户端在线</div>
+    </div>
+    <div class="stat pink">
+      <div class="label">Modules</div>
+      <div class="value" id="statModules">0</div>
+      <div class="sub">Modules/*.fdll</div>
+    </div>
+    <div class="stat lime">
+      <div class="label">Uptime</div>
+      <div class="value" id="statUptime">0s</div>
+      <div class="sub" id="statTelemetry">telemetry: none</div>
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Module Vault</h2>
+        <span class="hint">点击 TRIGGER 经 WebSocket 下发给 FE / FVP</span>
+      </div>
+      <div class="panel-body">
+        <table class="modules">
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Size</th>
+              <th>Modified</th>
+              <th>Sig</th>
+              <th style="text-align:right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="moduleRows">
+            <tr><td colspan="5" class="empty">正在读取 Modules/ …</td></tr>
+          </tbody>
+        </table>
+        <div class="toast" id="moduleToast"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Config Core</h2>
+        <span class="hint">实时广播到在线节点</span>
+      </div>
+      <div class="panel-body">
+        <div class="toggle-row">
+          <div class="toggle-copy">
+            <div class="t">Rate Limit</div>
+            <div class="d">FE 每玩家令牌桶（5 req/s）</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="rateLimit" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <div class="toggle-copy">
+            <div class="t">Log Level</div>
+            <div class="d">FoldEdge 控制台输出级别</div>
+          </div>
+          <select id="logLevel">
+            <option value="Debug">Debug</option>
+            <option value="Info" selected>Info</option>
+            <option value="Warn">Warn</option>
+            <option value="Error">Error</option>
+          </select>
+        </div>
+
+        <button class="btn-primary" onclick="saveConfig()">APPLY CONFIG</button>
+
+        <div class="panel-head" style="margin:18px -18px 0; border-top:1px solid var(--line-soft); border-bottom:0; padding-left:18px; padding-right:18px;">
+          <h2>Live Control</h2>
+        </div>
+        <div class="panel-body" style="padding:14px 0 0;">
+          <div class="control-row">
+            <button class="btn-ghost" onclick="postControl('/api/control/stop')">STOP ALL</button>
+            <input type="number" id="jumpSeconds" value="30" min="0" step="1" />
+            <button class="btn-ghost" onclick="jump()">JUMP</button>
+          </div>
+        </div>
+
+        <div class="toast" id="configToast"></div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <span>FOLD EDGE · NATIVE MEDIA FABRIC</span>
+    <span id="footStatus">API /api/status</span>
+  </footer>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let firstStatus = true;
+
+  function fmtBytes(bytes) {
+    if (!bytes && bytes !== 0) return "—";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1024 / 1024).toFixed(2) + " MB";
+  }
+
+  function fmtUptime(seconds) {
+    const s = Math.max(0, Math.floor(seconds || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    if (h > 0) return h + "h " + m + "m";
+    if (m > 0) return m + "m " + r + "s";
+    return r + "s";
+  }
+
+  function toast(id, text, kind) {
+    const el = $(id);
+    el.textContent = text;
+    el.className = "toast" + (kind ? " " + kind : "");
+  }
+
+  async function getJson(url, options) {
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error(url + " -> HTTP " + res.status);
+    return await res.json();
+  }
+
+  async function refreshStatus() {
+    try {
+      const s = await getJson("/api/status");
+      $("healthDot").className = "dot online";
+      $("healthText").textContent = "ONLINE";
+      $("versionPill").textContent = "v" + (s.version || "1.2.0");
+      $("statFe").textContent = s.fe ?? 0;
+      $("statFvp").textContent = s.fvp ?? 0;
+      $("statModules").textContent = (s.modules || []).length;
+      $("statUptime").textContent = fmtUptime(s.uptimeSeconds);
+      $("statTelemetry").textContent = "telemetry: " + (s.lastTelemetry || "none");
+      $("footStatus").textContent = "listen " + (s.listen || "?") + " · unknown " + (s.unknown ?? 0);
+
+      if (firstStatus) {
+        $("rateLimit").checked = !!s.rateLimitEnabled;
+        const lvl = s.logLevel || "Info";
+        if ([...$("logLevel").options].some(o => o.value === lvl)) $("logLevel").value = lvl;
+        firstStatus = false;
+      }
+    } catch (e) {
+      $("healthDot").className = "dot offline";
+      $("healthText").textContent = "OFFLINE";
+      $("footStatus").textContent = String(e.message || e);
+    }
+  }
+
+  async function refreshModules() {
+    try {
+      const data = await getJson("/api/modules");
+      const rows = data.modules || [];
+      if (rows.length === 0) {
+        $("moduleRows").innerHTML = '<tr><td colspan="5" class="empty">Modules/ 为空 · 用 FoldPacker 放入 .fdll</td></tr>';
+        return;
+      }
+
+      $("moduleRows").innerHTML = rows.map(m => {
+        const sig = m.signed
+          ? '<span class="tag">SIGNED</span>'
+          : '<span class="tag warn">UNSIGNED</span>';
+        const modified = new Date(m.modifiedUtc).toLocaleString();
+        const safeName = String(m.name).replace(/"/g, "&quot;");
+        return '<tr>' +
+          '<td class="name mono">' + escapeHtml(m.name) + '</td>' +
+          '<td class="mono muted">' + fmtBytes(m.size) + '</td>' +
+          '<td class="mono muted">' + modified + '</td>' +
+          '<td>' + sig + '</td>' +
+          '<td style="text-align:right">' +
+            '<button class="btn-trigger" onclick="triggerModule(this, \'' + safeName.replace(/'/g, "\\'") + '\')">TRIGGER</button>' +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    } catch (e) {
+      $("moduleRows").innerHTML = '<tr><td colspan="5" class="empty">' + escapeHtml(String(e.message || e)) + '</td></tr>';
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  async function triggerModule(button, name) {
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "SENDING";
+    try {
+      const res = await fetch("/api/trigger/" + encodeURIComponent(name), { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      toast("moduleToast", "已下发 " + name + " · clients=" + (data.clients ?? 0), "ok");
+      refreshStatus();
+    } catch (e) {
+      toast("moduleToast", "下发失败: " + (e.message || e), "err");
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  async function saveConfig() {
+    const body = {
+      rateLimitEnabled: $("rateLimit").checked,
+      logLevel: $("logLevel").value
+    };
+    try {
+      const res = await fetch("/api/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      toast("configToast", "配置已保存并广播 · rateLimit=" + data.rateLimitEnabled + " · log=" + data.logLevel, "ok");
+    } catch (e) {
+      toast("configToast", "保存失败: " + (e.message || e), "err");
+    }
+  }
+
+  async function postControl(url) {
+    try {
+      const res = await fetch(url, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      toast("configToast", "控制指令已发送 · sent=" + (data.sent ?? 0), "ok");
+    } catch (e) {
+      toast("configToast", "控制失败: " + (e.message || e), "err");
+    }
+  }
+
+  function jump() {
+    const seconds = Number($("jumpSeconds").value || 0);
+    postControl("/api/control/jump/" + encodeURIComponent(seconds));
+  }
+
+  async function tick() {
+    await Promise.all([refreshStatus(), refreshModules()]);
+  }
+
+  tick();
+  setInterval(tick, 3000);
+</script>
+</body>
+</html>

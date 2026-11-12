@@ -5,7 +5,7 @@ and what we are asking for.**
 
 Repository: https://github.com/xinyantao0803-max/Fold-Engine  
 Documentation site: https://xinyantao0803-max.github.io/Fold-Engine/  
-Version reviewed: **v1.0.2**
+Version reviewed: **v1.2**
 
 ---
 

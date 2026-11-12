@@ -20,7 +20,7 @@ namespace FoldEngine
         public override string Name => "FoldEngine";
         public override string Description => "The Next-Gen Media & Module Framework for SCP:SL.";
         public override string Author => "Fold Team";
-        public override Version Version => new Version(1, 0, 1);
+        public override Version Version => new Version(1, 2, 0);
         public override Version RequiredApiVersion => new Version(1, 1, 7);
 
         /// <summary>当前 UI 管理器实例（供 fold 指令调用）。</summary>

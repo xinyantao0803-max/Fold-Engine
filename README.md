@@ -12,6 +12,8 @@ Fold Mod 由三个运行模块组成：**FH（FoldEdge）**、**FE（FoldEngine�
 Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播放指令，也被整理为一份可供官方借鉴的零信任网络扩展方案：见 [docs/nw-security.md](docs/nw-security.md) 与 [给 NW 的邮件草稿](docs/nw-email-draft.md)。
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](#)
+[![Version](https://img.shields.io/badge/version-v1.2-22d3ee)](#)
+[![Web UI](https://img.shields.io/badge/web%20ui-%2Fdashboard-8b5cf6)](#)
 [![Client](https://img.shields.io/badge/client-WPF%20%2B%20Media%20Foundation-4b8bbe)](#)
 [![Native](https://img.shields.io/badge/native-Unity%20C%23%20module-22d3ee)](#)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](#license)
@@ -112,6 +114,7 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 - 持有 ECDSA P-256 私钥，签名格式见第 4 节
 - 防重放：3 秒时间窗 + nonce 去重
 - 提供 Web UI、`/api/*` 管理接口与 `/ws` WebSocket
+- **Web 管理面板 `/dashboard`**：FE / FVP 在线数、`Modules/*.fdll` 列表与 TRIGGER、限流开关与日志级别
 - 密钥保存在 `FoldEdge/keys/`，**已被 .gitignore 排除，禁止提交**
 
 默认监听：`http://127.0.0.1:9000`  
@@ -309,64 +312,101 @@ FE 不持有私钥，只原样转发 FH 生成的签名信封；未签名或畸�
 
 ---
 
-## 5. 安装与运行
+## 5. 三种使用场景 (Three Deployment Modes)
 
-### 前置条件
+Fold 的服务端主脑（FH）、游戏内插件（FE）与客户端渲染器（FVP）完全解耦。按你的环境选择一种即可，三种场景可以混合使用。
 
-- Windows 10/11 x64
-- .NET 8 Desktop Runtime
-- SCP:SL 服务端（LabAPI 环境）
-- 游戏使用窗口化或无边框全屏
+### 5.1 场景一：本地一键体验（All-in-One 镜像）
 
-### 5.1 启动 FH
+适合：想先看到完整 Web 管理面板、不想配置 .NET 环境的服主。
+
+前提：安装 Docker Desktop（Windows / macOS）或 Docker Engine（Linux）。
+
+```bash
+git clone https://github.com/xinyantao0803-max/Fold-Engine.git
+cd Fold-Engine
+docker compose up -d --build
+```
+
+打开 **http://127.0.0.1:9000/dashboard**。面板包含：
+
+- FE / FVP 在线数量、模块数量、运行时长与最近遥测
+- `Modules/*.fdll` 实时列表，点击 **TRIGGER** 即通过 WebSocket 下发播放指令
+- 限流开关与日志级别配置，保存后持久化并广播给在线 FE
+
+也可以直接拉取已构建镜像：
+
+```bash
+docker run -d --name foldedge --network host --restart always \
+  -v "$PWD/FoldEdge/keys:/app/keys" \
+  -v "$PWD/FoldEdge/Modules:/app/Modules" \
+  -v "$PWD/FoldEdge/Assets:/app/Assets" \
+  -v "$PWD/FoldEdge/Media:/app/Media" \
+  -v "$PWD/FoldEdge/Data:/app/Data" \
+  ghcr.io/xinyantao0803-max/fold-engine:v1.2
+```
+
+> **镜像只包含服务器端 FH。** FVP 是 Windows 原生 WPF 程序，不能放进 Docker。  
+> `network_mode: "host"` 会直接占用宿主 9000 端口；管理面板没有内置登录，暴露到公网前请加防火墙、反向代理认证或 VPN。  
+> `network_mode: "host"` 推荐用于 Linux 宿主；在 Docker Desktop（Windows/macOS）上请改为 `ports: ["9000:9000"]`，并让 FE 连接 `ws://<宿主IP>:9000/ws`。
+
+### 5.2 场景二：纯核心模块（核心引擎版）
+
+适合：已经用宝塔、Windows 服务、systemd 或自己的 .NET 环境管理服务端，只需要 FH + FE 的服主。
+
+**服务端主脑 FH**（需要 .NET 8 Runtime）：
 
 ```powershell
 dotnet run --project .\FoldEdge\FoldEdge.csproj -c Release
 ```
 
-首次启动会在 `FoldEdge/keys/` 生成 ECDSA 密钥对。私钥不会进入 Git。
+或发布后运行：
 
-### 5.2 安装 FE
+```powershell
+dotnet publish .\FoldEdge\FoldEdge.csproj -c Release -o .\dist\FoldEdge
+.\dist\FoldEdge\FoldEdge.exe
+```
+
+**游戏内插件 FE**（LabAPI）：
 
 ```powershell
 dotnet build .\FoldEngine\FoldEngine.csproj -c Release
 ```
 
-将 `FoldEngine.dll` 及依赖放入 LabAPI 插件目录，配置 `FoldEdgeUrl` 后重启服务器。
+将 `FoldEngine.dll` 及依赖放入 LabAPI 插件目录，配置 `FoldEdgeUrl`（默认 `ws://127.0.0.1:9000/ws`），重启服务器。
 
-### 5.3 启动 FVP
+这一场景只使用 `FoldEdge` 与 `FoldEngine` 两个目录；FVP 由玩家各自运行，`FoldNativeClient` 仅供 Northwood 原生合入。
 
-先部署公钥固定文件（缺失会导致所有指令被拒绝）：
+### 5.3 场景三：客户端 FVP（Windows 本地）
+
+**FVP 必须由玩家在本地 Windows 电脑上运行，不能放进 Docker，也不能部署在服务器上。**
+
+原因：FVP 是 WPF 桌面覆盖层，使用 Windows Media Foundation / DXVA 在本机显卡上硬解，并需要置顶、鼠标穿透与 F9 热键。
+
+1. 从 Releases 下载 `FoldClient`（或自行编译）。
+2. 将服务器 `FoldEdge/keys/fold-ecdsa-public.pem` 转成 SPKI Base64，保存为 `FoldClient.pub`，放在 `FoldClient.exe` 同目录。
+3. 启动：
 
 ```powershell
-$pub = ((Get-Content .\FoldEdge\keys\fold-ecdsa-public.pem -Raw) `
-  -replace '-----[^-]+-----','' -replace '\s','')
-Set-Content .\FoldClient\bin\Release\net8.0-windows\FoldClient.pub $pub -NoNewline
+.\FoldClient.exe --edge ws://<服务器IP>:9000/ws
 ```
 
-然后启动客户端：
+4. 进入游戏后使用窗口化或无边框全屏；按 **F9** 立即停止并销毁画面。
 
 ```powershell
-dotnet build .\FoldClient\FoldClient.csproj -c Release
-.\FoldClient\bin\Release\net8.0-windows\FoldClient.exe --edge ws://127.0.0.1:9000/ws
-```
-
-测试播放（客户端会向 FH 请求签名并立即播放）：
-
-```powershell
-.\FoldClient\bin\Release\net8.0-windows\FoldClient.exe `
-  --edge ws://127.0.0.1:9000/ws `
+# 本机自测播放
+.\FoldClient.exe --edge ws://127.0.0.1:9000/ws `
   --test-video http://127.0.0.1:9000/Assets/your-video.mp4
 ```
 
-也可以在服务器控制台触发：
+`FoldEdge/Assets/` 与 `FoldEdge/Media/` 默认被 Git 忽略，请通过 `/api/media/upload` 或手动放置素材。
+
+### 5.4 服务器控制台快捷指令
 
 ```
 fold video http://127.0.0.1:9000/Assets/your-video.mp4
 fold image http://127.0.0.1:9000/Assets/your-image.png
 ```
-
-`FoldEdge/Assets/` 与 `FoldEdge/Media/` 默认被 Git 忽略，请通过 FH 上传接口或手动放置素材。
 
 ---
 
@@ -379,15 +419,26 @@ docker compose up -d --build
 docker compose logs -f foldedge
 ```
 
+镜像标签：`ghcr.io/xinyantao0803-max/fold-engine:v1.2`
+
 关键配置：
 
 - **`network_mode: "host"`**：不做额外端口映射，避免 NAT/UDP 跳数；同机游戏服务端可直接访问 `ws://127.0.0.1:9000/ws`
 - **`restart: always`**：进程崩溃或宿主重启后自动恢复
-- **卷挂载**：`./FoldEdge/keys`、`./FoldEdge/Modules`、`./FoldEdge/Assets`、`./FoldEdge/Media`
+- **卷挂载**：`./FoldEdge/keys`、`./FoldEdge/Modules`、`./FoldEdge/Assets`、`./FoldEdge/Media`、`./FoldEdge/Data`
+- **`ListenUrl=http://0.0.0.0:9000`**：容器内必须绑定 `0.0.0.0`；宿主侧访问 `http://127.0.0.1:9000/dashboard`
 
 > 首次启动会在挂载的 `./FoldEdge/keys` 中生成 ECDSA 密钥对；该目录已被 `.gitignore` 排除，不会进入镜像或仓库。  
+> 管理面板配置持久化在 `./FoldEdge/Data/dashboard-config.json`。  
 > `docker-compose.yml` 只包含 FH 服务。SCP:SL 游戏服务端镜像取决于你的服务端发行版与 LabAPI 版本，请按文件内注释自行加入，并保持 `network_mode: "host"`。  
-> FH 镜像基于 `mcr.microsoft.com/dotnet/aspnet:8.0`，图片处理使用 `SkiaSharp.NativeAssets.Linux.NoDependencies`，无需额外系统库。
+> 镜像基于 `mcr.microsoft.com/dotnet/aspnet:8.0`，内置 FFmpeg；图片处理使用 `SkiaSharp.NativeAssets.Linux.NoDependencies`，无需额外系统库。
+
+手动构建并推送 GHCR：
+
+```bash
+docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.2 .
+docker push ghcr.io/xinyantao0803-max/fold-engine:v1.2
+```
 
 详细说明见 [docs/docker.md](docs/docker.md)。
 
@@ -422,7 +473,8 @@ dotnet run --project .\tests\FoldClient.Test\FoldClient.Test.csproj -c Release
 
 ```
 FoldEdge/               FH 主程序（规则引擎、解包、ECDSA 签名）
-├─ Dockerfile           FH 容器构建（.NET 8，多阶段）
+├─ Dockerfile           FH 容器构建（.NET 8，多阶段，内置 FFmpeg）
+└─ wwwroot/             /dashboard 管理面板与旧版 Console
 FoldEngine/             FE 服务端插件（LabAPI 空壳代理）
 FoldClient/             FVP 客户端（WPF + Media Foundation，方案 A）
 └─ Core/                解码与验签核心库

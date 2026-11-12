@@ -22,7 +22,10 @@ using Microsoft.Extensions.FileProviders;
 // ============================================================
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls(builder.Configuration["ListenUrl"] ?? "http://127.0.0.1:9000");
+var listenUrl = builder.Configuration["ListenUrl"] ?? "http://127.0.0.1:9000";
+builder.WebHost.UseUrls(listenUrl);
+
+const string FoldVersion = "1.2.0";
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -49,19 +52,27 @@ var startTime = DateTime.UtcNow;
 var modulesDir = Path.Combine(app.Environment.ContentRootPath, "Modules");
 Directory.CreateDirectory(modulesDir);
 
+// ---- 管理面板配置：持久化到 Data/dashboard-config.json ----
+var dataDir = Path.Combine(app.Environment.ContentRootPath, "Data");
+Directory.CreateDirectory(dataDir);
+var dashboardConfigPath = Path.Combine(dataDir, "dashboard-config.json");
+var dashboardConfig = DashboardConfig.Load(dashboardConfigPath);
+FoldLog.Level = FoldLog.ParseLevel(dashboardConfig.LogLevel);
+
 var lastTelemetry = "none";
 
 // 多语言：默认 zh-CN（后续可从配置或请求头切换，见 Loc.Load）
 Loc.Load("zh-CN");
-Console.WriteLine($"[FoldEdge] {Loc.Get("service.start")}");
+FoldLog.Info($"[FoldEdge] {Loc.Get("service.start")}");
 
 // ECDSA 密钥：首次启动生成 keys/fold-ecdsa-private.pem，公钥需硬编码进 FoldClient
 MediaSigner.Initialize();
-Console.WriteLine("[FoldEdge] ECDSA public key (SPKI PEM):");
-Console.WriteLine(MediaSigner.PublicKeyPem);
+FoldLog.Info("[FoldEdge] ECDSA public key (SPKI PEM):");
+FoldLog.Info(MediaSigner.PublicKeyPem);
 
-// ---- WebSocket 客户端（游戏内 FoldEngine 插件）连接表 ----
-var clients = new ConcurrentDictionary<Guid, WebSocket>();
+// ---- WebSocket 客户端连接表（FoldEngine 插件 / FoldClient 客户端） ----
+// 客户端连接后发送 {"type":"hello","role":"fe"|"fvp"} 以便面板区分在线数量。
+var clients = new ConcurrentDictionary<Guid, ClientConnection>();
 
 static string GetString(JsonElement root, string name) =>
     root.TryGetProperty(name, out var value) ? value.GetString() ?? string.Empty : string.Empty;
@@ -88,9 +99,9 @@ static int CountTimelineActions(string json)
 int CountAliveClients()
 {
     int count = 0;
-    foreach (var (id, socket) in clients)
+    foreach (var (id, connection) in clients)
     {
-        if (socket.State == WebSocketState.Open)
+        if (connection.Socket.State == WebSocketState.Open)
         {
             count++;
         }
@@ -102,13 +113,37 @@ int CountAliveClients()
     return count;
 }
 
+// 按角色统计在线连接：fe = FoldEngine 插件，fvp = FoldClient，unknown = 尚未 hello
+(int Fe, int Fvp, int Unknown) CountClientRoles()
+{
+    int fe = 0, fvp = 0, unknown = 0;
+    foreach (var (id, connection) in clients)
+    {
+        if (connection.Socket.State != WebSocketState.Open)
+        {
+            clients.TryRemove(id, out _);
+            continue;
+        }
+
+        switch (connection.Role)
+        {
+            case "fe": fe++; break;
+            case "fvp": fvp++; break;
+            default: unknown++; break;
+        }
+    }
+
+    return (fe, fvp, unknown);
+}
+
 // 推送并返回实际成功发送的客户端数量；失败的连接立即从活动列表移除
 async Task<int> BroadcastAsync(string json)
 {
     var payload = Encoding.UTF8.GetBytes(json);
     int sent = 0;
-    foreach (var (id, socket) in clients)
+    foreach (var (id, connection) in clients)
     {
+        var socket = connection.Socket;
         if (socket.State != WebSocketState.Open)
         {
             clients.TryRemove(id, out _);
@@ -162,7 +197,7 @@ string? ReadEntry(ZipArchive zip, string entryName)
                 var signature = Convert.FromBase64String(File.ReadAllText(signaturePath).Trim());
                 if (!MediaSigner.VerifyDetached(raw, signature))
                     return (null, null, false, "module signature invalid");
-                Console.WriteLine($"[FoldEdge] module signature verified: {moduleName}");
+                FoldLog.Info($"[FoldEdge] module signature verified: {moduleName}");
             }
             catch (FormatException)
             {
@@ -171,7 +206,7 @@ string? ReadEntry(ZipArchive zip, string entryName)
         }
         else
         {
-            Console.WriteLine($"[FoldEdge] warning: {moduleName}.fdll has no detached signature");
+            FoldLog.Warn($"[FoldEdge] warning: {moduleName}.fdll has no detached signature");
         }
 
         // 文件头不是 ZIP（"PK"）时按 FOLDENC1 加密容器处理，仅在内存中解密
@@ -224,7 +259,7 @@ async Task<string?> SendPlayCommandAsync(string moduleName)
 
     // 媒体条目在离开 FoldEdge 前完成签名；FoldEngine 只负责透传
     timeline = MediaSigner.SignTimeline(timeline!);
-    Console.WriteLine($"[FoldEdge] module {moduleName}: {CountTimelineActions(timeline)} timeline action(s) signed");
+    FoldLog.Info($"[FoldEdge] module {moduleName}: {CountTimelineActions(timeline)} timeline action(s) signed");
 
     string payload;
     if (encrypted)
@@ -270,18 +305,35 @@ async Task<ImageFrame> PushImageAsync(string url, int maxWidth, int maxHeight, f
         frames = frame.Frames
     });
     int sent = await BroadcastAsync(payload);
-    Console.WriteLine($"[FoldEdge] {Loc.Get("image.converted", frame.Width, frame.Height, sent)}");
+    FoldLog.Info($"[FoldEdge] {Loc.Get("image.converted", frame.Width, frame.Height, sent)}");
     return frame;
 }
 
-// ---- 处理插件发来的请求（image-request / trigger） ----
-async Task HandleClientMessage(string msg)
+// ---- 处理插件/客户端发来的请求（hello / image-request / trigger / media-request） ----
+async Task HandleClientMessage(Guid clientId, string msg)
 {
     try
     {
         using var doc = JsonDocument.Parse(msg);
         if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
         var type = typeEl.GetString();
+
+        // 角色握手：FE 插件发送 role=fe，FoldClient 发送 role=fvp
+        if (type == "hello")
+        {
+            if (clients.TryGetValue(clientId, out var connection))
+            {
+                var role = doc.RootElement.TryGetProperty("role", out var roleEl)
+                    ? (roleEl.GetString() ?? string.Empty).ToLowerInvariant()
+                    : string.Empty;
+                connection.Role = role == "fe" || role == "fvp" ? role : "unknown";
+                connection.Name = doc.RootElement.TryGetProperty("name", out var nameEl)
+                    ? nameEl.GetString() ?? string.Empty
+                    : string.Empty;
+                FoldLog.Info($"[FoldEdge] client hello: {clientId} role={connection.Role} name={connection.Name}");
+            }
+            return;
+        }
 
         if (type == "get_public_key")
         {
@@ -358,21 +410,21 @@ async Task HandleClientMessage(string msg)
         {
             var module = moduleEl.GetString()!;
             var error = await SendPlayCommandAsync(module);
-            Console.WriteLine(error == null
+            FoldLog.Info(error == null
                 ? $"[FoldEdge] 已下发模块: {module}"
                 : $"[FoldEdge] 模块下发失败 ({module}): {error}");
         }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[FoldEdge] {Loc.Get("image.failed", ex.Message)}");
+        FoldLog.Warn($"[FoldEdge] {Loc.Get("image.failed", ex.Message)}");
     }
 }
 
 // ---- FileSystemWatcher：监控 Modules/*.fdll ----
 async Task OnModuleChanged(object sender, FileSystemEventArgs e)
 {
-    Console.WriteLine($"[FoldEdge] {Loc.Get("module.changed", Path.GetFileNameWithoutExtension(e.Name), e.ChangeType.ToString())}");
+    FoldLog.Info($"[FoldEdge] {Loc.Get("module.changed", Path.GetFileNameWithoutExtension(e.Name), e.ChangeType.ToString())}");
     await BroadcastAsync(JsonSerializer.Serialize(new
     {
         type = "module-updated",
@@ -390,7 +442,7 @@ watcher.Created += (s, e) => _ = OnModuleChanged(s, e);
 watcher.Changed += (s, e) => _ = OnModuleChanged(s, e);
 watcher.Deleted += (s, e) => _ = OnModuleChanged(s, e);
 watcher.EnableRaisingEvents = true;
-Console.WriteLine($"[FoldEdge] {Loc.Get("modules.watching", modulesDir)}");
+FoldLog.Info($"[FoldEdge] {Loc.Get("modules.watching", modulesDir)}");
 
 // ---- WebSocket 服务：FoldEngine 插件接入点 ----
 app.Map("/ws", async context =>
@@ -403,8 +455,8 @@ app.Map("/ws", async context =>
 
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
     var id = Guid.NewGuid();
-    clients[id] = socket;
-    Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.connected", id)}");
+    clients[id] = new ClientConnection(socket);
+    FoldLog.Info($"[FoldEdge] {Loc.Get("ws.client.connected", id)}");
 
     // 握手后立即下发公钥，客户端据此动态初始化验签器。
     var keyPayload = JsonSerializer.Serialize(new
@@ -436,34 +488,98 @@ app.Map("/ws", async context =>
             {
                 var msg = sb.ToString();
                 sb.Clear();
-                await HandleClientMessage(msg);
+                await HandleClientMessage(id, msg);
             }
         }
     }
     catch (Exception ex)
     {
         clients.TryRemove(id, out _);
-        Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.error", ex.Message)}");
+        FoldLog.Warn($"[FoldEdge] {Loc.Get("ws.client.error", ex.Message)}");
     }
     finally
     {
         clients.TryRemove(id, out _);
-        Console.WriteLine($"[FoldEdge] {Loc.Get("ws.client.disconnected", id)}");
+        FoldLog.Info($"[FoldEdge] {Loc.Get("ws.client.disconnected", id)}");
     }
 });
 
+// ---- Web 管理面板：GET /dashboard ----
+var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+app.MapGet("/dashboard", () => Results.File(Path.Combine(webRoot, "dashboard.html"), "text/html"));
+
 // ---- GET /api/status ----
-app.MapGet("/api/status", () => Results.Ok(new
+app.MapGet("/api/status", () =>
 {
-    status = "ok",
-    service = "FoldEdge",
-    listen = "127.0.0.1:9000",
-    uptimeSeconds = (long)(DateTime.UtcNow - startTime).TotalSeconds,
-    clients = CountAliveClients(),
-    mediaStorage = storageStrategy,
-    lastTelemetry,
-    modules = Directory.GetFiles(modulesDir, "*.fdll").Select(Path.GetFileName).ToArray()
-}));
+    var (fe, fvp, unknown) = CountClientRoles();
+    return Results.Ok(new
+    {
+        status = "ok",
+        service = "FoldEdge",
+        version = FoldVersion,
+        listen = listenUrl,
+        uptimeSeconds = (long)(DateTime.UtcNow - startTime).TotalSeconds,
+        clients = fe + fvp + unknown,
+        fe,
+        fvp,
+        unknown,
+        mediaStorage = storageStrategy,
+        lastTelemetry,
+        rateLimitEnabled = dashboardConfig.RateLimitEnabled,
+        logLevel = dashboardConfig.LogLevel,
+        modules = Directory.GetFiles(modulesDir, "*.fdll")
+            .Select(Path.GetFileNameWithoutExtension)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray()
+    });
+});
+
+// ---- GET /api/modules：面板模块列表（实时读取 Modules/*.fdll） ----
+app.MapGet("/api/modules", () =>
+{
+    var modules = Directory.GetFiles(modulesDir, "*.fdll")
+        .Select(path =>
+        {
+            var info = new FileInfo(path);
+            return new
+            {
+                name = Path.GetFileNameWithoutExtension(path),
+                file = info.Name,
+                size = info.Length,
+                modifiedUtc = info.LastWriteTimeUtc,
+                signed = File.Exists(path + ".sig")
+            };
+        })
+        .OrderBy(item => item.name, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    return Results.Ok(new { modules });
+});
+
+// ---- GET / PUT /api/config：限流开关与日志级别 ----
+app.MapGet("/api/config", () => Results.Ok(dashboardConfig));
+
+app.MapPut("/api/config", async (DashboardConfig updated) =>
+{
+    if (updated == null)
+        return Results.BadRequest(new { error = "missing config" });
+
+    dashboardConfig.RateLimitEnabled = updated.RateLimitEnabled;
+    dashboardConfig.LogLevel = FoldLog.NormalizeLevel(updated.LogLevel);
+    FoldLog.Level = FoldLog.ParseLevel(dashboardConfig.LogLevel);
+    dashboardConfig.Save(dashboardConfigPath);
+
+    // FE 收到 type=config 后即时切换限流；其他客户端会忽略该消息
+    int sent = await BroadcastAsync(JsonSerializer.Serialize(new
+    {
+        type = "config",
+        rateLimitEnabled = dashboardConfig.RateLimitEnabled,
+        logLevel = dashboardConfig.LogLevel
+    }, jsonOpts));
+
+    FoldLog.Info($"[FoldEdge] config updated: rateLimitEnabled={dashboardConfig.RateLimitEnabled}, logLevel={dashboardConfig.LogLevel}, broadcast={sent}");
+    return Results.Ok(dashboardConfig);
+});
 
 // ---- POST /api/trigger/{moduleName}：读取 .fdll 并下发播放指令 ----
 app.MapPost("/api/trigger/{moduleName}", async (string moduleName) =>
@@ -620,7 +736,7 @@ app.MapPost("/api/telemetry", async (HttpContext context) =>
         return Results.Unauthorized();
 
     lastTelemetry = $"{status} {mediaType} {url} {currentTime:F1}s";
-    Console.WriteLine($"[FoldEdge] telemetry: {lastTelemetry}");
+    FoldLog.Info($"[FoldEdge] telemetry: {lastTelemetry}");
     return Results.Ok(new { ok = true });
 });
 
@@ -628,11 +744,11 @@ app.MapPost("/api/telemetry", async (HttpContext context) =>
 app.Lifetime.ApplicationStopping.Register(() =>
 {
     watcher.Dispose();
-    foreach (var socket in clients.Values)
+    foreach (var connection in clients.Values)
     {
         try
         {
-            socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "FoldEdge shutdown", CancellationToken.None).Wait();
+            connection.Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "FoldEdge shutdown", CancellationToken.None).Wait();
         }
         catch
         {
@@ -679,5 +795,121 @@ internal static class FoldCrypto
         aes.Padding = PaddingMode.PKCS7;
         using var encryptor = aes.CreateEncryptor();
         return Convert.ToBase64String(encryptor.TransformFinalBlock(bytes, 0, bytes.Length));
+    }
+}
+
+/// <summary>一条 WebSocket 连接的角色信息（fe / fvp / unknown）。</summary>
+internal sealed class ClientConnection
+{
+    public ClientConnection(WebSocket socket)
+    {
+        Socket = socket;
+        ConnectedUtc = DateTime.UtcNow;
+    }
+
+    public WebSocket Socket { get; }
+    public DateTime ConnectedUtc { get; }
+    public string Role { get; set; } = "unknown";
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>管理面板可修改的持久化配置。</summary>
+public sealed class DashboardConfig
+{
+    public bool RateLimitEnabled { get; set; } = true;
+    public string LogLevel { get; set; } = "Info";
+
+    public static DashboardConfig Load(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return new DashboardConfig();
+
+            var config = JsonSerializer.Deserialize<DashboardConfig>(File.ReadAllText(path));
+            return config ?? new DashboardConfig();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FoldEdge] config load failed: {ex.Message}");
+            return new DashboardConfig();
+        }
+    }
+
+    public void Save(string path)
+    {
+        try
+        {
+            File.WriteAllText(path, JsonSerializer.Serialize(this, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FoldEdge] config save failed: {ex.Message}");
+        }
+    }
+}
+
+/// <summary>FoldEdge 控制台日志级别：由管理面板配置中心实时切换。</summary>
+internal enum FoldLogLevel
+{
+    Debug = 0,
+    Info = 1,
+    Warn = 2,
+    Error = 3
+}
+
+internal static class FoldLog
+{
+    public static FoldLogLevel Level { get; set; } = FoldLogLevel.Info;
+
+    public static FoldLogLevel ParseLevel(string value)
+    {
+        switch ((value ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "debug": return FoldLogLevel.Debug;
+            case "warn":
+            case "warning": return FoldLogLevel.Warn;
+            case "error": return FoldLogLevel.Error;
+            default: return FoldLogLevel.Info;
+        }
+    }
+
+    public static string NormalizeLevel(string value)
+    {
+        switch ((value ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "debug": return "Debug";
+            case "warn":
+            case "warning": return "Warn";
+            case "error": return "Error";
+            default: return "Info";
+        }
+    }
+
+    public static void Debug(string message)
+    {
+        if (Level <= FoldLogLevel.Debug)
+            Console.WriteLine("[FoldEdge][debug] " + message);
+    }
+
+    public static void Info(string message)
+    {
+        if (Level <= FoldLogLevel.Info)
+            Console.WriteLine(message);
+    }
+
+    public static void Warn(string message)
+    {
+        if (Level <= FoldLogLevel.Warn)
+            Console.WriteLine("[FoldEdge][warn] " + message);
+    }
+
+    public static void Error(string message)
+    {
+        if (Level <= FoldLogLevel.Error)
+            Console.WriteLine("[FoldEdge][error] " + message);
     }
 }

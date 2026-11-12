@@ -13,11 +13,17 @@ namespace FoldEngine
         private const double RefillPerSecond = 5.0;
         private const int MaxBuckets = 2048;
 
+        /// <summary>由 FoldEdge 管理面板实时切换；关闭后所有请求直接放行。</summary>
+        public static volatile bool Enabled = true;
+
         private static readonly ConcurrentDictionary<string, Bucket> Buckets =
             new ConcurrentDictionary<string, Bucket>(StringComparer.Ordinal);
 
         public static bool TryAcquire(string playerId)
         {
+            if (!Enabled)
+                return true;
+
             if (string.IsNullOrEmpty(playerId))
                 return true;
 
