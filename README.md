@@ -12,7 +12,7 @@ Fold Mod 由三个运行模块组成：**FH（FoldEdge）**、**FE（FoldEngine�
 Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播放指令，也被整理为一份可供官方借鉴的零信任网络扩展方案：见 [docs/nw-security.md](docs/nw-security.md) 与 [给 NW 的邮件草稿](docs/nw-email-draft.md)。
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](#)
-[![Version](https://img.shields.io/badge/version-v1.2-22d3ee)](#)
+[![Version](https://img.shields.io/badge/version-v1.3-22d3ee)](#)
 [![Web UI](https://img.shields.io/badge/web%20ui-%2Fdashboard-8b5cf6)](#)
 [![Client](https://img.shields.io/badge/client-WPF%20%2B%20Media%20Foundation-4b8bbe)](#)
 [![Native](https://img.shields.io/badge/native-Unity%20C%23%20module-22d3ee)](#)
@@ -61,6 +61,25 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 | 代码 | [`FoldClient/`](FoldClient/) | [`FoldNativeClient/`](FoldNativeClient/) |
 
 **两套方案共用同一套 ECDSA 签名信封**（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）：服务端只需签名一次，任一客户端实现都可验签执行。
+
+---
+
+## 🛡 v1.3 企业控制平面 (Enterprise Control Plane)
+
+> **FoldEdge 现在不只是黑框框：内置暗黑赛博朋克 Web 管理面板、RBAC、统一日志中心、限时权限与 VPN 凭证生命周期。**
+
+- **Web UI**：`/dashboard`，原生 JS + 内联 CSS，**零 CDN 依赖**；登录、初始化、加载动画、错误 Toast 全链路兜底，不会白屏
+- **首次初始化**：强制创建 Owner 账号；密码使用 **PBKDF2-SHA256（120,000 次迭代 + 随机盐）**
+- **RBAC**：`Owner`（全部权限）/ `Admin`（触发模块、播放控制、查看日志）/ `Viewer`（只读）
+- **会话**：HS256 JWT；服务端校验 `TokenVersion`，吊销或到期后旧令牌立即失效
+- **统一日志中心**：按天切割、保留最近 7 天、实时面板、**中英双语**
+- **限时权限**：创建账号可设 10 分钟 / 1 小时 / 24 小时 / 自定义；到期自动吊销 JWT、禁用 VPN、通知 FE 收回游戏权限并执行 `RoundRestart`
+- **VPN 凭证**：一键生成 L2TP / IKEv2 凭证与 Windows 原生 `Add-VpnConnection` 脚本；网关可通过 `/api/vpn/verify` 实时校验
+- **一键部署**：`./start.sh` 构建并启动容器，终端打印 Web 访问地址
+
+> **VPN 说明**：FoldEdge 负责凭证签发、校验与吊销；实际隧道由服主配置的 L2TP / IKEv2 网关承载，FoldEdge 不代理流量。
+
+入口文件：[`FoldEdge/wwwroot/dashboard.html`](FoldEdge/wwwroot/dashboard.html) · 认证与 RBAC：[`FoldEdge/Security/`](FoldEdge/Security/) · 日志：[`FoldEdge/Logging/LogService.cs`](FoldEdge/Logging/LogService.cs)
 
 ---
 
@@ -115,7 +134,8 @@ Fold 的签名信封（`[FOLD_*]<ts>|<nonce>|<sig>|<payload>`）不仅保护播�
 - 防重放：3 秒时间窗 + nonce 去重
 - 提供 Web UI、`/api/*` 管理接口与 `/ws` WebSocket
 - **Web 管理面板 `/dashboard`**：FE / FVP 在线数、`Modules/*.fdll` 列表与 TRIGGER、限流开关与日志级别
-- 密钥保存在 `FoldEdge/keys/`，**已被 .gitignore 排除，禁止提交**
+- **企业控制平面**：Owner / Admin / Viewer RBAC、PBKDF2 密码哈希、JWT 会话、实时双语日志、限时权限与 VPN 凭证
+- 密钥保存在 `FoldEdge/keys/`，**已被 .gitignore 排除，禁止提交**；用户库与会话密钥在 `FoldEdge/Data/`，同样不进入 Git
 
 默认监听：`http://127.0.0.1:9000`  
 WebSocket：`ws://127.0.0.1:9000/ws`
@@ -310,6 +330,18 @@ FE 不持有私钥，只原样转发 FH 生成的签名信封；未签名或畸�
 
 > 适用范围：上述措施针对超大包、畸形 JSON、洪水请求与主线程阻塞等常见炸服手法；不对游戏本体或零日漏洞作绝对保证。
 
+### 4.7 管理面板、RBAC 与限时权限
+
+- **首次初始化**：`/api/setup/status` 返回未初始化时，所有受保护接口返回 `428`；只有 `POST /api/setup/owner` 能创建唯一的 Owner
+- **密码存储**：PBKDF2-SHA256，120,000 次迭代，16 字节随机盐，32 字节哈希，常量时间比较
+- **JWT**：HS256；签名密钥自动生成并保存在 `FoldEdge/Data/jwt-secret.b64`；服务端同时校验 `ver` 与用户状态
+- **RBAC**：`Owner` 全部权限；`Admin` 可触发模块/控制播放/查看日志；`Viewer` 只读。越权请求返回 `403`
+- **限时权限**：`ExpiryService` 每 5 秒检查一次；到期后 `TokenVersion++`（旧 JWT 立即失效）、`Vpn.Enabled=false`、写入安全警告日志；若绑定 SteamID，则向 FE 下发 `revoke-access` 并执行 `RoundRestart`
+- **日志**：`Data/Logs/foldedge-YYYY-MM-DD.log`，保留 7 天；每条日志同时包含中英文文本，UI 切换语言时无需重新请求
+- **VPN**：凭证与账号生命周期由 FH 管理；`/api/vpn/verify` 供网关校验；实际隧道由服主配置的 L2TP / IKEv2 网关承载
+
+> 管理面板已内置登录与 RBAC，但**不包含 TLS、MFA 或反向代理**。公网部署请务必放在 HTTPS 反向代理之后，并限制 9000 端口来源。
+
 ---
 
 ## 5. 三种使用场景 (Three Deployment Modes)
@@ -325,14 +357,24 @@ Fold 的服务端主脑（FH）、游戏内插件（FE）与客户端渲染器�
 ```bash
 git clone https://github.com/xinyantao0803-max/Fold-Engine.git
 cd Fold-Engine
+./start.sh
+```
+
+`start.sh` 会检查 Docker、执行 `docker compose up -d --build`、等待 `/api/health`，最后在终端打印醒目的 Web 访问地址。
+
+也可以手动执行：
+
+```bash
 docker compose up -d --build
 ```
 
-打开 **http://127.0.0.1:9000/dashboard**。面板包含：
+打开 **http://127.0.0.1:9000/dashboard**。首次访问会强制进入 **Owner 初始化页**。面板包含：
 
-- FE / FVP 在线数量、模块数量、运行时长与最近遥测
+- FE / FVP 在线数量、模块数量、账号数量、运行时长与最近遥测
 - `Modules/*.fdll` 实时列表，点击 **TRIGGER** 即通过 WebSocket 下发播放指令
-- 限流开关与日志级别配置，保存后持久化并广播给在线 FE
+- 用户管理：Owner / Admin / Viewer、SteamID 绑定、限时有效期、VPN 凭证与 Windows 脚本下载
+- 统一日志中心：实时、按天切割、保留 7 天、中英双语
+- 配置中心：限流开关与日志级别，保存后持久化并广播给在线 FE
 
 也可以直接拉取已构建镜像：
 
@@ -343,11 +385,11 @@ docker run -d --name foldedge --network host --restart always \
   -v "$PWD/FoldEdge/Assets:/app/Assets" \
   -v "$PWD/FoldEdge/Media:/app/Media" \
   -v "$PWD/FoldEdge/Data:/app/Data" \
-  ghcr.io/xinyantao0803-max/fold-engine:v1.2
+  ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
 ```
 
 > **镜像只包含服务器端 FH。** FVP 是 Windows 原生 WPF 程序，不能放进 Docker。  
-> `network_mode: "host"` 会直接占用宿主 9000 端口；管理面板没有内置登录，暴露到公网前请加防火墙、反向代理认证或 VPN。  
+> `network_mode: "host"` 会直接占用宿主 9000 端口；面板已内置 JWT 登录与 RBAC，但不含 TLS/MFA，公网部署请加 HTTPS 反向代理与防火墙。  
 > `network_mode: "host"` 推荐用于 Linux 宿主；在 Docker Desktop（Windows/macOS）上请改为 `ports: ["9000:9000"]`，并让 FE 连接 `ws://<宿主IP>:9000/ws`。
 
 ### 5.2 场景二：纯核心模块（核心引擎版）
@@ -419,7 +461,7 @@ docker compose up -d --build
 docker compose logs -f foldedge
 ```
 
-镜像标签：`ghcr.io/xinyantao0803-max/fold-engine:v1.2`
+镜像标签：`ghcr.io/xinyantao0803-max/fold-engine:v1.3.0`
 
 关键配置：
 
@@ -436,11 +478,11 @@ docker compose logs -f foldedge
 手动构建并推送 GHCR：
 
 ```bash
-docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.2 .
-docker push ghcr.io/xinyantao0803-max/fold-engine:v1.2
+docker build -f FoldEdge/Dockerfile -t ghcr.io/xinyantao0803-max/fold-engine:v1.3.0 .
+docker push ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
 ```
 
-> 推送任意 `v*` 标签时，[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 会自动构建并推送同标签镜像与 `latest`。`v1.2` 镜像已通过该流程发布。
+> 推送任意 `v*` 标签时，[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 会自动构建并推送同标签镜像与 `latest`。`v1.3.0` 镜像通过该流程发布。
 
 详细说明见 [docs/docker.md](docs/docker.md)。
 
@@ -474,10 +516,12 @@ dotnet run --project .\tests\FoldClient.Test\FoldClient.Test.csproj -c Release
 ## 8. 仓库结构
 
 ```
-FoldEdge/               FH 主程序（规则引擎、解包、ECDSA 签名）
+FoldEdge/               FH 主程序（规则引擎、解包、ECDSA 签名、Web UI）
 ├─ Dockerfile           FH 容器构建（.NET 8，多阶段，内置 FFmpeg）
-└─ wwwroot/             /dashboard 管理面板与旧版 Console
-FoldEngine/             FE 服务端插件（LabAPI 空壳代理）
+├─ wwwroot/             /dashboard 企业控制平面（SPA、双语、无 CDN）
+├─ Security/            用户库、PBKDF2、JWT、VPN 凭证、限时权限
+└─ Logging/             统一日志中心（按天切割、保留 7 天）
+FoldEngine/             FE 服务端插件（LabAPI 空壳代理 + revoke-access）
 FoldClient/             FVP 客户端（WPF + Media Foundation，方案 A）
 └─ Core/                解码与验签核心库
 FoldNativeClient/       FVP-Native Unity C# 模块（方案 B，供官方合入）
@@ -498,6 +542,7 @@ tests/
 tools/
 ├─ pack-fdll.ps1        旧版 PowerShell 打包脚本
 └─ FoldPacker/          C# CLI 打包工具（加密 / 签名）
+start.sh                一键检查 Docker、构建、启动并打印 Web 地址
 docker-compose.yml      FH 一键部署（host 网络、自动重启）
 NW-REVIEW.md            给 Northwood 的审查与原生合入指南
 README.md

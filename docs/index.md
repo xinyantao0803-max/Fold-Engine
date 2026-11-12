@@ -56,6 +56,16 @@ Not just a media player, but a Zero-Trust network protocol reference for SCP:SL.
 
 </div>
 
+## Enterprise Control Plane (v1.3)
+
+- **Dashboard** — `/dashboard` SPA with login, RBAC, module trigger, live logs, and settings.
+- **RBAC** — Owner / Admin / Viewer; PBKDF2-SHA256 passwords; HS256 JWT sessions.
+- **Unified logs** — daily files, 7-day retention, live bilingual panel.
+- **Time-limited access** — expiry revokes the JWT and VPN credential, then triggers an in-game revoke and round restart.
+- **VPN credentials** — native Windows L2TP / IKEv2 profile script with gateway verification.
+
+[Docker deployment](docker.md){ .md-button } [NW Review Guide](https://github.com/xinyantao0803-max/Fold-Engine/blob/main/NW-REVIEW.md){ .md-button }
+
 ## Core Security Properties
 
 - **Zero injection** — the external client is a separate WPF process.

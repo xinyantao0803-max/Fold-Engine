@@ -336,7 +336,7 @@ namespace FoldEngine
 
         // ---------------- 工具方法 ----------------
         /// <summary>按 SteamID64（可省略 @steam）或昵称查找在线玩家。</summary>
-        private static Player FindPlayer(string playerId)
+        internal static Player FindPlayer(string playerId)
         {
             if (string.IsNullOrEmpty(playerId)) return null;
 

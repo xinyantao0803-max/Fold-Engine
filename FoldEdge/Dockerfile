@@ -30,6 +30,8 @@ RUN mkdir -p /app/Data /app/Modules /app/Assets /app/Media /app/keys
 # ListenUrl overrides appsettings.json, so the dashboard is reachable from
 # outside the container (or from the host when network_mode: host is used).
 ENV ListenUrl=http://0.0.0.0:9000 \
+    VpnServer=vpn.example.com \
+    VpnTunnelType=L2tp \
     ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_ENVIRONMENT=Production
 

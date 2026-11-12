@@ -310,6 +310,14 @@ namespace FoldEngine
                 return true;
             }
 
+            if (string.Equals(command, "revoke-access", StringComparison.OrdinalIgnoreCase))
+            {
+                string steamId = MiniJson.GetStringValue(json, "steamId") ?? string.Empty;
+                bool roundRestart = MiniJson.GetBoolValue(json, "roundRestart", true);
+                FoldCore.RunOnMain(() => AccessRevoker.Revoke(steamId, roundRestart));
+                return true;
+            }
+
             if (!string.Equals(command, "play", StringComparison.OrdinalIgnoreCase))
             {
                 return false;

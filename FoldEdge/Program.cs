@@ -25,7 +25,7 @@ var builder = WebApplication.CreateBuilder(args);
 var listenUrl = builder.Configuration["ListenUrl"] ?? "http://127.0.0.1:9000";
 builder.WebHost.UseUrls(listenUrl);
 
-const string FoldVersion = "1.2.0";
+const string FoldVersion = "1.3.0";
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -40,14 +40,6 @@ var uploadDir = Path.Combine(app.Environment.ContentRootPath, "Media", "Uploads"
 Directory.CreateDirectory(assetsDir);
 Directory.CreateDirectory(uploadDir);
 
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(assetsDir),
-    RequestPath = "/Assets"
-});
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
 var startTime = DateTime.UtcNow;
 var modulesDir = Path.Combine(app.Environment.ContentRootPath, "Modules");
 Directory.CreateDirectory(modulesDir);
@@ -58,6 +50,91 @@ Directory.CreateDirectory(dataDir);
 var dashboardConfigPath = Path.Combine(dataDir, "dashboard-config.json");
 var dashboardConfig = DashboardConfig.Load(dashboardConfigPath);
 FoldLog.Level = FoldLog.ParseLevel(dashboardConfig.LogLevel);
+
+// ---- 统一日志中心 / 用户库 / JWT / VPN ----
+var logService = new LogService(dataDir);
+FoldLog.Sink = logService;
+var userStore = new UserStore(dataDir);
+var jwtService = new JwtService(Path.Combine(dataDir, "jwt-secret.b64"));
+var vpnService = new VpnService(
+    builder.Configuration["VpnServer"] ?? "vpn.example.com",
+    builder.Configuration["VpnTunnelType"] ?? "L2tp");
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(assetsDir),
+    RequestPath = "/Assets"
+});
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// ---- API 请求日志中间件（跳过日志/状态等高频轮询） ----
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    bool noisy = path.StartsWithSegments("/api/logs") ||
+                 path.StartsWithSegments("/api/status") ||
+                 path.StartsWithSegments("/api/health");
+    if (!path.StartsWithSegments("/api") || noisy)
+    {
+        await next();
+        return;
+    }
+
+    DateTime started = DateTime.UtcNow;
+    await next();
+    long elapsed = (long)(DateTime.UtcNow - started).TotalMilliseconds;
+    logService.Write("Debug",
+        $"API {context.Request.Method} {path} -> {context.Response.StatusCode} ({elapsed}ms)",
+        $"API {context.Request.Method} {path} -> {context.Response.StatusCode} ({elapsed}ms)");
+});
+
+// ---- JWT 会话与 RBAC 网关：未登录 / 无权限无法访问受保护接口 ----
+app.Use(async (context, next) =>
+{
+    string path = context.Request.Path.Value ?? string.Empty;
+    if (!path.StartsWith("/api", StringComparison.OrdinalIgnoreCase) || IsPublicApiPath(path))
+    {
+        await next();
+        return;
+    }
+
+    if (!userStore.HasOwner)
+    {
+        context.Response.StatusCode = StatusCodes.Status428PreconditionRequired;
+        await context.Response.WriteAsJsonAsync(new { error = "setup_required" });
+        return;
+    }
+
+    string header = context.Request.Headers.Authorization.ToString();
+    if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { error = "unauthorized" });
+        return;
+    }
+
+    if (!jwtService.TryValidate(header.Substring(7).Trim(), out var payload, out var reason) || payload == null)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { error = reason });
+        return;
+    }
+
+    var user = userStore.FindById(payload.Sub);
+    if (user == null ||
+        user.RevokedAtUtc != null ||
+        user.TokenVersion != payload.Ver ||
+        (user.ExpiresAtUtc.HasValue && user.ExpiresAtUtc.Value <= DateTime.UtcNow))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { error = "session_revoked" });
+        return;
+    }
+
+    context.Items["foldUser"] = user;
+    await next();
+});
 
 var lastTelemetry = "none";
 
@@ -525,6 +602,10 @@ app.MapGet("/api/status", () =>
         unknown,
         mediaStorage = storageStrategy,
         lastTelemetry,
+        users = userStore.All().Count,
+        ownerInitialized = userStore.HasOwner,
+        vpnServer = vpnService.Server,
+        vpnTunnelType = vpnService.TunnelType,
         rateLimitEnabled = dashboardConfig.RateLimitEnabled,
         logLevel = dashboardConfig.LogLevel,
         modules = Directory.GetFiles(modulesDir, "*.fdll")
@@ -556,11 +637,247 @@ app.MapGet("/api/modules", () =>
     return Results.Ok(new { modules });
 });
 
+// ---- 认证 / 初始化 / 用户 / VPN / 日志 ----
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = FoldVersion }));
+app.MapGet("/api/setup/status", () => Results.Ok(new { initialized = userStore.HasOwner }));
+
+app.MapPost("/api/setup/owner", (SetupRequest request) =>
+{
+    if (userStore.HasOwner)
+        return Results.Conflict(new { error = "already_initialized" });
+    if (!IsValidUsername(request.Username))
+        return Results.BadRequest(new { error = "invalid_username" });
+    if (!IsStrongPassword(request.Password))
+        return Results.BadRequest(new { error = "weak_password" });
+
+    var (salt, hash) = PasswordHasher.Hash(request.Password);
+    var owner = new FoldUser
+    {
+        Username = request.Username.Trim(),
+        PasswordSalt = salt,
+        PasswordHash = hash,
+        Role = "Owner"
+    };
+    userStore.Add(owner);
+    logService.Write("Info", $"Owner 账号已初始化: {owner.Username}", $"Owner account initialized: {owner.Username}");
+    string token = jwtService.Issue(owner, TimeSpan.FromHours(12));
+    return Results.Ok(new { token, user = ToUserDto(owner) });
+});
+
+app.MapPost("/api/auth/login", (LoginRequest request) =>
+{
+    var user = userStore.FindByUsername(request.Username);
+    if (user == null || !PasswordHasher.Verify(request.Password, user.PasswordSalt, user.PasswordHash))
+    {
+        logService.Write("Warn", $"登录失败: {request.Username}", $"Sign-in failed: {request.Username}");
+        return Results.Json(new { error = "invalid_credentials" }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+    if (user.RevokedAtUtc != null)
+        return Results.Json(new { error = "revoked" }, statusCode: StatusCodes.Status403Forbidden);
+    if (user.ExpiresAtUtc.HasValue && user.ExpiresAtUtc.Value <= DateTime.UtcNow)
+        return Results.Json(new { error = "expired" }, statusCode: StatusCodes.Status403Forbidden);
+
+    string token = jwtService.Issue(user, TimeSpan.FromHours(12));
+    logService.Write("Info", $"用户登录: {user.Username} ({user.Role})", $"User signed in: {user.Username} ({user.Role})");
+    return Results.Ok(new { token, user = ToUserDto(user) });
+});
+
+app.MapGet("/api/auth/me", (HttpContext context) =>
+{
+    var user = CurrentUser(context);
+    return user == null
+        ? Results.Json(new { error = "unauthorized" }, statusCode: StatusCodes.Status401Unauthorized)
+        : Results.Ok(new { user = ToUserDto(user) });
+});
+
+app.MapGet("/api/users", (HttpContext context) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || current.Role != "Owner")
+        return Forbidden();
+
+    return Results.Ok(new { users = userStore.All().Select(ToUserDto).ToArray() });
+});
+
+app.MapPost("/api/users", (HttpContext context, CreateUserRequest request) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || current.Role != "Owner")
+        return Forbidden();
+    if (!IsValidUsername(request.Username))
+        return Results.BadRequest(new { error = "invalid_username" });
+    if (!IsStrongPassword(request.Password))
+        return Results.BadRequest(new { error = "weak_password" });
+    if (request.Role != "Admin" && request.Role != "Viewer")
+        return Results.BadRequest(new { error = "invalid_role" });
+    if (userStore.FindByUsername(request.Username) != null)
+        return Results.Conflict(new { error = "username_taken" });
+
+    var (salt, hash) = PasswordHasher.Hash(request.Password);
+    var user = new FoldUser
+    {
+        Username = request.Username.Trim(),
+        PasswordSalt = salt,
+        PasswordHash = hash,
+        Role = request.Role,
+        SteamId = (request.SteamId ?? string.Empty).Trim(),
+        ExpiresAtUtc = request.DurationMinutes > 0
+            ? DateTime.UtcNow.AddMinutes(request.DurationMinutes)
+            : null,
+        Vpn = request.CreateVpn ? vpnService.CreateAccount() : null
+    };
+    userStore.Add(user);
+
+    logService.Write("Info",
+        $"已创建 {user.Role} 用户 {user.Username}" +
+        (user.ExpiresAtUtc.HasValue ? $"，有效期至 {user.ExpiresAtUtc:u}" : "（永久）") +
+        (user.Vpn != null ? "，已生成 VPN 凭证" : string.Empty),
+        $"Created {user.Role} user {user.Username}" +
+        (user.ExpiresAtUtc.HasValue ? $", expires {user.ExpiresAtUtc:u}" : " (permanent)") +
+        (user.Vpn != null ? ", VPN credentials generated" : string.Empty));
+
+    return Results.Ok(new { user = ToUserDto(user), vpnPassword = user.Vpn?.Password });
+});
+
+app.MapPost("/api/users/{id}/revoke", async (HttpContext context, string id) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || current.Role != "Owner")
+        return Forbidden();
+
+    var target = userStore.FindById(id);
+    if (target == null)
+        return Results.NotFound(new { error = "not_found" });
+    if (target.Role == "Owner")
+        return Results.BadRequest(new { error = "cannot_revoke_owner" });
+
+    if (!userStore.TryMarkRevoked(id, out var revoked) || revoked == null)
+        return Results.Ok(new { revoked = false });
+
+    logService.Write("Warn",
+        $"Owner 手动吊销用户 {revoked.Username}：Web 会话与 VPN 凭证已失效",
+        $"Owner manually revoked user {revoked.Username}: Web session and VPN credential invalidated");
+
+    if (!string.IsNullOrWhiteSpace(revoked.SteamId))
+    {
+        string payload = JsonSerializer.Serialize(new
+        {
+            type = "command",
+            command = "revoke-access",
+            steamId = revoked.SteamId,
+            roundRestart = true
+        }, jsonOpts);
+        int sent = await BroadcastAsync(payload);
+        logService.Write("Warn",
+            $"已通知 FoldEngine 收回 {revoked.SteamId} 的游戏权限并重启回合（节点 {sent}）",
+            $"FoldEngine notified to revoke in-game access for {revoked.SteamId} and restart the round (nodes {sent})");
+    }
+
+    return Results.Ok(new { revoked = true, user = ToUserDto(revoked) });
+});
+
+app.MapGet("/api/users/{id}/vpn", (HttpContext context, string id) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || current.Role != "Owner")
+        return Forbidden();
+
+    var user = userStore.FindById(id);
+    if (user?.Vpn == null)
+        return Results.NotFound(new { error = "vpn_not_found" });
+
+    return Results.Ok(new
+    {
+        user = user.Username,
+        vpn = new
+        {
+            username = user.Vpn.Username,
+            password = user.Vpn.Password,
+            enabled = user.Vpn.Enabled
+        },
+        server = vpnService.Server,
+        tunnelType = vpnService.TunnelType,
+        scriptUrl = $"/api/users/{id}/vpn/script"
+    });
+});
+
+app.MapGet("/api/users/{id}/vpn/script", (HttpContext context, string id) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || current.Role != "Owner")
+        return Forbidden();
+
+    var user = userStore.FindById(id);
+    if (user?.Vpn == null)
+        return Results.NotFound(new { error = "vpn_not_found" });
+
+    string script = vpnService.BuildWindowsScript(user);
+    return Results.File(
+        Encoding.UTF8.GetBytes(script),
+        "text/plain; charset=utf-8",
+        $"Fold-{user.Username}.ps1");
+});
+
+app.MapPost("/api/vpn/verify", (HttpContext context, VpnVerifyRequest request) =>
+{
+    string expectedToken = builder.Configuration["VpnGatewayToken"] ?? string.Empty;
+    string providedToken = context.Request.Headers["X-VPN-Gateway-Token"].ToString();
+    bool isLoopback = context.Connection.RemoteIpAddress != null &&
+                      System.Net.IPAddress.IsLoopback(context.Connection.RemoteIpAddress);
+
+    if (!string.IsNullOrEmpty(expectedToken))
+    {
+        if (!FixedTimeEquals(providedToken, expectedToken))
+            return Results.Json(new { allowed = false, error = "bad_gateway_token" }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+    else if (!isLoopback)
+    {
+        return Results.Json(new { allowed = false, error = "gateway_token_required" }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var user = userStore.FindByVpnUsername(request.Username);
+    bool active = user?.Vpn != null &&
+                  user.Vpn.Enabled &&
+                  user.RevokedAtUtc == null &&
+                  (!user.ExpiresAtUtc.HasValue || user.ExpiresAtUtc.Value > DateTime.UtcNow);
+
+    if (!active || user == null || !FixedTimeEquals(request.Password, user.Vpn!.Password))
+        return Results.Json(new { allowed = false }, statusCode: StatusCodes.Status403Forbidden);
+
+    return Results.Ok(new { allowed = true, user = user.Username, role = user.Role });
+});
+
+app.MapGet("/api/logs", (HttpContext context, long? after, int? limit) =>
+{
+    var current = CurrentUser(context);
+    if (current == null)
+        return Results.Json(new { error = "unauthorized" }, statusCode: StatusCodes.Status401Unauthorized);
+
+    long cursor = after ?? 0;
+    int take = Math.Clamp(limit ?? 200, 1, 500);
+    var entries = logService.ReadAfter(cursor, take)
+        .Select(entry => new
+        {
+            id = entry.Id,
+            tsUtc = entry.TsUtc,
+            level = entry.Level,
+            zh = entry.Zh,
+            en = entry.En
+        })
+        .ToArray();
+
+    long latestId = entries.Length > 0 ? entries[^1].id : cursor;
+    return Results.Ok(new { entries, latestId });
+});
+
 // ---- GET / PUT /api/config：限流开关与日志级别 ----
 app.MapGet("/api/config", () => Results.Ok(dashboardConfig));
 
-app.MapPut("/api/config", async (DashboardConfig updated) =>
+app.MapPut("/api/config", async (HttpContext context, DashboardConfig updated) =>
 {
+    var current = CurrentUser(context);
+    if (current == null || current.Role != "Owner")
+        return Forbidden();
     if (updated == null)
         return Results.BadRequest(new { error = "missing config" });
 
@@ -577,17 +894,26 @@ app.MapPut("/api/config", async (DashboardConfig updated) =>
         logLevel = dashboardConfig.LogLevel
     }, jsonOpts));
 
-    FoldLog.Info($"[FoldEdge] config updated: rateLimitEnabled={dashboardConfig.RateLimitEnabled}, logLevel={dashboardConfig.LogLevel}, broadcast={sent}");
+    logService.Write("Info",
+        $"配置已更新：限流 {dashboardConfig.RateLimitEnabled}，日志 {dashboardConfig.LogLevel}（广播 {sent} 节点）",
+        $"Config updated: rate limit {dashboardConfig.RateLimitEnabled}, log level {dashboardConfig.LogLevel} (broadcast {sent} nodes)");
     return Results.Ok(dashboardConfig);
 });
 
 // ---- POST /api/trigger/{moduleName}：读取 .fdll 并下发播放指令 ----
-app.MapPost("/api/trigger/{moduleName}", async (string moduleName) =>
+app.MapPost("/api/trigger/{moduleName}", async (HttpContext context, string moduleName) =>
 {
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
     var error = await SendPlayCommandAsync(moduleName);
     if (error != null)
         return Results.NotFound(new { error = $"module '{moduleName}': {error}" });
 
+    logService.Write("Info",
+        $"{current.Username} 触发模块 {moduleName}（在线 {CountAliveClients()}）",
+        $"{current.Username} triggered module {moduleName} ({CountAliveClients()} online)");
     return Results.Ok(new { sent = true, module = moduleName, clients = CountAliveClients() });
 });
 
@@ -596,6 +922,10 @@ app.MapPost("/api/trigger/{moduleName}", async (string moduleName) =>
 //  url 传 "test"/"smiley" 走本地生成图；其余下载 → 转 JSON 颜色矩阵 → 推送给已连接的 FoldEngine 插件。
 app.MapPost("/api/image", async (HttpContext context) =>
 {
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
     var req = await context.Request.ReadFromJsonAsync<ImageRequest>();
     if (req == null || string.IsNullOrEmpty(req.Url))
         return Results.BadRequest(new { error = "missing 'url'" });
@@ -621,6 +951,10 @@ app.MapPost("/api/image", async (HttpContext context) =>
 // ---- POST /api/media/upload：上传原始视频 → FFmpeg 转码 → /Assets URL ----
 app.MapPost("/api/media/upload", async (HttpContext context) =>
 {
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
     if (!context.Request.HasFormContentType)
         return Results.BadRequest(new { error = "multipart/form-data required" });
 
@@ -678,8 +1012,12 @@ app.MapPost("/api/media/upload", async (HttpContext context) =>
 });
 
 // ---- POST /api/module/publish：视频 + 海报 + 时间轴 → 一键生成 .fdll ----
-app.MapPost("/api/module/publish", (ModulePublishRequest request) =>
+app.MapPost("/api/module/publish", (HttpContext context, ModulePublishRequest request) =>
 {
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
     if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.VideoUrl))
         return Results.BadRequest(new { error = "name and videoUrl are required" });
 
@@ -709,9 +1047,24 @@ async Task<IResult> SendControlAsync(string command, double seconds)
     return Results.Ok(new { sent, marker });
 }
 
-app.MapPost("/api/control/stop", () => SendControlAsync("STOP", 0));
+app.MapPost("/api/control/stop", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    var current = CurrentUser(context);
+    if (current == null || !IsOperator(current))
+        return Forbidden();
+
+    return await SendControlAsync("STOP", 0);
+});
+
 app.MapPost("/api/control/jump/{seconds:double}",
-    (double seconds) => SendControlAsync("JUMP", seconds));
+    async (HttpContext context, double seconds, CancellationToken cancellationToken) =>
+    {
+        var current = CurrentUser(context);
+        if (current == null || !IsOperator(current))
+            return Forbidden();
+
+        return await SendControlAsync("JUMP", seconds);
+    });
 
 // ---- POST /api/telemetry：FoldClient 播放状态（HMAC 校验） ----
 app.MapPost("/api/telemetry", async (HttpContext context) =>
@@ -757,10 +1110,130 @@ app.Lifetime.ApplicationStopping.Register(() =>
     }
 });
 
+// ---- 限时权限到期检查（每 5 秒） ----
+var expiryService = new ExpiryService(userStore, logService, json => BroadcastAsync(json));
+expiryService.Start();
+app.Lifetime.ApplicationStopping.Register(expiryService.Stop);
+
+logService.Write("Info", $"FoldEdge v{FoldVersion} 已启动", $"FoldEdge v{FoldVersion} started");
 app.Run();
+
+// ---- 认证 / 权限辅助 ----
+static bool IsPublicApiPath(string path)
+{
+    return path.Equals("/api/health", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/api/setup/status", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/api/setup/owner", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/api/auth/login", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/api/telemetry", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/api/vpn/verify", StringComparison.OrdinalIgnoreCase);
+}
+
+static FoldUser? CurrentUser(HttpContext context)
+{
+    return context.Items["foldUser"] as FoldUser;
+}
+
+static bool IsOperator(FoldUser user)
+{
+    return user.Role == "Owner" || user.Role == "Admin";
+}
+
+static IResult Forbidden()
+{
+    return Results.Json(new { error = "forbidden" }, statusCode: StatusCodes.Status403Forbidden);
+}
+
+static object ToUserDto(FoldUser user)
+{
+    return new
+    {
+        id = user.Id,
+        username = user.Username,
+        role = user.Role,
+        steamId = user.SteamId,
+        createdAtUtc = user.CreatedAtUtc,
+        expiresAtUtc = user.ExpiresAtUtc,
+        revokedAtUtc = user.RevokedAtUtc,
+        active = user.RevokedAtUtc == null &&
+                 (!user.ExpiresAtUtc.HasValue || user.ExpiresAtUtc.Value > DateTime.UtcNow),
+        vpn = user.Vpn == null
+            ? null
+            : (object)new
+            {
+                username = user.Vpn.Username,
+                enabled = user.Vpn.Enabled,
+                createdAtUtc = user.Vpn.CreatedAtUtc
+            }
+    };
+}
+
+static bool IsValidUsername(string username)
+{
+    if (string.IsNullOrWhiteSpace(username))
+        return false;
+
+    string value = username.Trim();
+    if (value.Length < 3 || value.Length > 32)
+        return false;
+
+    foreach (char c in value)
+    {
+        bool allowed = char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == '.';
+        if (!allowed)
+            return false;
+    }
+
+    return true;
+}
+
+static bool IsStrongPassword(string password)
+{
+    return !string.IsNullOrWhiteSpace(password) && password.Length >= 8;
+}
+
+static bool FixedTimeEquals(string left, string right)
+{
+    if (left == null || right == null || left.Length != right.Length)
+        return false;
+
+    int diff = 0;
+    for (int i = 0; i < left.Length; i++)
+        diff |= left[i] ^ right[i];
+
+    return diff == 0;
+}
 
 /// <summary>POST /api/image 请求体（默认 8x6）。</summary>
 public sealed record ImageRequest(string Url, int MaxWidth = 8, int MaxHeight = 6, float Duration = 8f);
+
+public sealed class SetupRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
+public sealed class LoginRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
+public sealed class CreateUserRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string Role { get; set; } = "Viewer";
+    public string? SteamId { get; set; }
+    public int DurationMinutes { get; set; }
+    public bool CreateVpn { get; set; }
+}
+
+public sealed class VpnVerifyRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
 
 /// <summary>
 /// 预设密钥 AES-256-CBC（PKCS7）：
@@ -865,6 +1338,9 @@ internal static class FoldLog
 {
     public static FoldLogLevel Level { get; set; } = FoldLogLevel.Info;
 
+    /// <summary>统一日志中心；为空时仅输出到控制台。</summary>
+    public static LogService? Sink { get; set; }
+
     public static FoldLogLevel ParseLevel(string value)
     {
         switch ((value ?? string.Empty).Trim().ToLowerInvariant())
@@ -892,24 +1368,36 @@ internal static class FoldLog
     public static void Debug(string message)
     {
         if (Level <= FoldLogLevel.Debug)
+        {
             Console.WriteLine("[FoldEdge][debug] " + message);
+            Sink?.Write("Debug", message);
+        }
     }
 
     public static void Info(string message)
     {
         if (Level <= FoldLogLevel.Info)
+        {
             Console.WriteLine(message);
+            Sink?.Write("Info", message);
+        }
     }
 
     public static void Warn(string message)
     {
         if (Level <= FoldLogLevel.Warn)
+        {
             Console.WriteLine("[FoldEdge][warn] " + message);
+            Sink?.Write("Warn", message);
+        }
     }
 
     public static void Error(string message)
     {
         if (Level <= FoldLogLevel.Error)
+        {
             Console.WriteLine("[FoldEdge][error] " + message);
+            Sink?.Write("Error", message);
+        }
     }
 }

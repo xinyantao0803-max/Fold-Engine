@@ -2,112 +2,14 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>FoldEdge Console</title>
+  <meta http-equiv="refresh" content="0; url=/dashboard" />
+  <title>FoldEdge — Redirecting</title>
   <style>
-    :root { color-scheme: dark; }
-    body { margin: 0; padding: 32px; font-family: Segoe UI, system-ui, sans-serif; background: #0f1115; color: #e8ecf1; }
-    h1 { font-size: 22px; letter-spacing: .04em; }
-    h2 { font-size: 16px; margin-top: 32px; color: #9fb3c8; text-transform: uppercase; letter-spacing: .08em; }
-    .card { max-width: 860px; margin: auto; }
-    .panel { background: #171b22; border: 1px solid #242b36; border-radius: 12px; padding: 20px; margin-top: 14px; }
-    label { display: block; font-size: 12px; color: #8a9bb0; margin: 10px 0 4px; }
-    input, button { font: inherit; }
-    input[type=text], input[type=file] { width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid #2c3441; background: #0f1319; color: #e8ecf1; box-sizing: border-box; }
-    button { margin-top: 12px; padding: 9px 16px; border-radius: 8px; border: 0; background: #3d7eff; color: #fff; cursor: pointer; }
-    button.secondary { background: #2a3240; }
-    pre { background: #0b0e13; border: 1px solid #242b36; border-radius: 8px; padding: 12px; overflow: auto; font-size: 12px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .row > div { flex: 1 1 220px; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #05070c; color: #22d3ee; font-family: Consolas, monospace; }
+    a { color: #22d3ee; }
   </style>
 </head>
 <body>
-<div class="card">
-  <h1>FoldEdge Console</h1>
-  <p style="color:#8a9bb0">媒体上传、转码、一键发布与播放控制。API 与面板同源。</p>
-  <p><a href="/dashboard" style="color:#22d3ee;font-family:Consolas,monospace;font-size:13px;">→ 打开 Control Deck 管理面板（/dashboard）</a></p>
-
-  <h2>1. 上传视频（自动 FFmpeg 转码 1080p / ~3Mbps）</h2>
-  <div class="panel">
-    <input type="file" id="file" accept="video/*" />
-    <button onclick="upload()">上传并转码</button>
-    <pre id="uploadResult">等待上传…</pre>
-  </div>
-
-  <h2>2. 一键生成 .fdll</h2>
-  <div class="panel">
-    <div class="row">
-      <div><label>模块名</label><input type="text" id="name" value="cinematic" /></div>
-      <div><label>作者</label><input type="text" id="author" value="Fold" /></div>
-    </div>
-    <label>视频 URL（上传结果里的 url）</label>
-    <input type="text" id="videoUrl" />
-    <label>海报 URL（可选）</label>
-    <input type="text" id="posterUrl" />
-    <label>标签（逗号分隔，如 18+,GORE）</label>
-    <input type="text" id="tags" />
-    <button onclick="publish()">发布模块</button>
-    <pre id="publishResult">等待发布…</pre>
-  </div>
-
-  <h2>3. 播放控制</h2>
-  <div class="panel">
-    <div class="row">
-      <div><button class="secondary" onclick="post('/api/control/stop')">STOP 强制停止</button></div>
-      <div><input type="text" id="jump" value="30" /></div>
-      <div><button class="secondary" onclick="post('/api/control/jump/' + document.getElementById('jump').value)">JUMP 快进</button></div>
-    </div>
-    <pre id="status">…</pre>
-  </div>
-</div>
-<script>
-async function upload() {
-  const file = document.getElementById('file').files[0];
-  if (!file) return alert('请选择视频文件');
-  const form = new FormData();
-  form.append('file', file);
-  const out = document.getElementById('uploadResult');
-  out.textContent = '上传/转码中…';
-  try {
-    const res = await fetch('/api/media/upload', { method: 'POST', body: form });
-    const json = await res.json();
-    out.textContent = JSON.stringify(json, null, 2);
-    if (json.url) document.getElementById('videoUrl').value = json.url;
-  } catch (e) { out.textContent = String(e); }
-}
-
-async function publish() {
-  const body = {
-    name: document.getElementById('name').value,
-    author: document.getElementById('author').value,
-    videoUrl: document.getElementById('videoUrl').value,
-    posterUrl: document.getElementById('posterUrl').value || null,
-    tags: document.getElementById('tags').value.split(',').map(s => s.trim()).filter(Boolean)
-  };
-  const out = document.getElementById('publishResult');
-  try {
-    const res = await fetch('/api/module/publish', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-    });
-    out.textContent = JSON.stringify(await res.json(), null, 2);
-  } catch (e) { out.textContent = String(e); }
-}
-
-async function post(url) {
-  try {
-    const res = await fetch(url, { method: 'POST' });
-    document.getElementById('status').textContent = JSON.stringify(await res.json(), null, 2);
-  } catch (e) { document.getElementById('status').textContent = String(e); }
-}
-
-async function refresh() {
-  try {
-    const res = await fetch('/api/status');
-    document.getElementById('status').textContent = JSON.stringify(await res.json(), null, 2);
-  } catch (e) { document.getElementById('status').textContent = String(e); }
-}
-refresh();
-setInterval(refresh, 5000);
-</script>
+  <p>Redirecting to <a href="/dashboard">/dashboard</a> …</p>
 </body>
 </html>

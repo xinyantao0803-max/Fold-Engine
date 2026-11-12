@@ -14,7 +14,7 @@ services:
     build:
       context: .
       dockerfile: FoldEdge/Dockerfile
-    image: ghcr.io/xinyantao0803-max/fold-engine:v1.2
+    image: ghcr.io/xinyantao0803-max/fold-engine:v1.3.0
     container_name: foldedge
     network_mode: "host"
     restart: always
@@ -28,6 +28,10 @@ services:
       # 0.0.0.0 is required inside the container; use a firewall/VPN if the
       # dashboard must not be reachable from the LAN.
       - ListenUrl=http://0.0.0.0:9000
+      - VpnServer=vpn.example.com
+      - VpnTunnelType=L2tp
+      # Set a gateway token before exposing /api/vpn/verify beyond localhost:
+      # - VpnGatewayToken=change-me-before-exposing
       - ASPNETCORE_ENVIRONMENT=Production
       - DOTNET_ENVIRONMENT=Production
 
